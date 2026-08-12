@@ -4,7 +4,7 @@
 
 ## 目录
 
-- 通用预检
+- 派发前预检
 - PR 与功能分支
 - 单个 commit、范围与 merge commit
 - 工作区与多 worktree
@@ -12,7 +12,7 @@
 - 子模块、LFS、生成文件与交付卫生
 - 基线归因
 
-## 通用预检
+## 派发前预检
 
 先读取上层指令，再运行安全只读查询：
 
@@ -28,6 +28,16 @@ git for-each-ref --format='%(refname:short)' refs/remotes/
 不要 clean、stash、reset、checkout 覆盖或删除工作区。已跟踪修改、暂存修改、未跟踪文件和其他 worktree 都是用户数据。
 
 默认不要输出 `git remote -v` 或原始 remote URL。只有任务确需检查远端配置时才读取，并在写入日志、证据包或报告前移除 userinfo、令牌和敏感查询参数。
+
+在派发子代理前确认：
+
+1. 所有目标 refs 可解析为 commit。
+2. base/head 与用户或 PR 元数据一致。
+3. 审查范围不是因错误目录、坏 ref 或错误比较方式而意外为空。
+4. 目标 worktree 与用户指定工件一致。
+5. 本地脏状态不会被误算进 PR，也不会被审计操作覆盖。
+
+若范围为空，区分“确实无内容”“补丁已等价合入”“head 已是 base 祖先”“比较方式错误”和“目标 worktree 错误”，不要把空输出直接当结论。
 
 ## PR 与功能分支
 

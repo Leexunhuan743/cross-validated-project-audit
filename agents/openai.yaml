@@ -1,8 +1,7 @@
 interface:
-  display_name: 通用多代理审计
-  short_description: 通过独立子代理交叉验证，全面审计代码变更、实现与计划
-  default_prompt: Use $audit-project-artifacts to perform a comprehensive, evidence-based
-    multi-agent audit of this project artifact.
+  display_name: 通用多代理审计 v1.2
+  short_description: 多个只读代理独立审查，由主代理以证据裁决项目与发布风险
+  default_prompt: 使用 $audit-project-artifacts-v1-2 对这个项目工件执行全面、只读、证据驱动的多代理审计，并给出明确门禁结论。
   icon_small: assets/icon.svg
   icon_large: assets/icon.svg
 policy:
