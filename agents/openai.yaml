@@ -1,0 +1,14 @@
+interface:
+  display_name: 通用多代理审计
+  short_description: 通过独立子代理交叉验证，全面审计代码变更、实现与计划
+  default_prompt: Use $audit-project-artifacts to perform a comprehensive, evidence-based
+    multi-agent audit of this project artifact.
+  icon_small: assets/icon.svg
+  icon_large: assets/icon.svg
+policy:
+  products:
+  - chatgpt
+  - codex
+  - api
+  - atlas
+  allow_implicit_invocation: true

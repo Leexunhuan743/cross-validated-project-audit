@@ -1,75 +1,128 @@
 ---
-name: universal-audit-review
-description: "Run a multi-agent audit or review of any project artifact — a feature branch, a commit, an implemented feature, or an implementation plan — with 4-15 READ-ONLY subagents across security/logic/UI/CLI/tests/i18n/concurrency/git/regression dimensions, then personally re-verify every finding and adjudicate ADOPT/DECIDE/REJECT. Use when the user asks to 审计/审核/审查/审阅 a 分支/commit/PR/计划/已实现功能 全面/多角度/从各个方面, or asks 修复得对不对/commit 是否合理. Also covers the fix-verify loop when the user requires fixes with per-batch verification."
+name: audit-project-artifacts
+description: "对软件项目工件执行基于证据的全面审计，包括 PR、分支、commit、工作区改动、已实现功能、配置、迁移和实施计划；按风险与可用容量安排多个只读子代理独立审查，对高风险区域刻意重叠并交叉验证，再由主代理亲自复核和裁决。Use when the user explicitly asks for 全面/深入/多角度/多代理审计或审查、完整的合并或发布就绪评估，或要求用多代理/交叉验证确认修复结果；also use for comprehensive, deep, multi-agent audits and cross-validated fix verification. Do not use this heavyweight workflow for quick summaries, purely stylistic reviews, or routine narrow correctness/safety questions unless the user explicitly requests independent cross-validation."
 ---
 
-# Universal audit & review — multi-agent, personally re-verified
+# 通用多代理审计
 
-Audit any project artifact with read-only subagents, then **re-verify every finding yourself**. The core loop — baseline → dispatch → re-verify → adjudicate → fix → verify — is the same for every artifact; only the scoping differs.
+用多个相互独立的审查视角发现候选问题，再由主代理根据原始证据逐项确认。把代理共识当作调查线索，不当作事实证明。
 
-## When to use (pick the artifact)
+## 核心约束
 
-| Artifact | Scope | Dispatch |
-|---|---|---|
-| **Feature branch / PR** | `git log --oneline base..head` + `git diff --stat base head` | 8-10 agents |
-| **Fix commit** (post-audit remediation) | prior audit report + fix diff, finding→fix mapping | 10-15 agents |
-| **Implemented feature** (delivered work) | plan file + branch state | 8-10 agents |
-| **Implementation plan** (pre-execution) | plan file + its key claims | 4 agents |
+- 默认只审计、不修改项目内容。可在安全且必要时于仓库外创建隔离的临时探针或测试产物，并在结束时清理。
+- 用户明确要求修复时，只授权任务范围内的本地项目编辑。提交、推送、PR 修改、部署以及外部或生产写入仍分别需要明确授权，不得从“修复”中推定。
+- 让子代理保持只读；禁止它们修改源文件、提交、推送、部署或操作生产系统。只运行安全且与审计直接相关的检查。
+- 让主代理亲自阅读约定审计范围内的完整相关变更和必要上下文，并对最终报告负责；不要充当子代理输出的转发器。
+- 在工具允许时至少使用两个独立子代理。并发容量不足时分波次运行；没有子代理能力时明确披露降级，不得假装完成了多代理交叉验证。
+- 对最高风险区域安排至少两个相互独立的发现过程，并由主代理做第三次核验。不要把复用同一线程、共享既有结论的审查算作独立验证。
+- 根据证据强度校准结论。无法验证的平台、环境或运行时主张必须标为条件性结论或残留缺口。
+- 对安全问题只保留证明结论所需的最小复现和防御性证据。遵守上层安全政策，不输出不必要的可直接滥用步骤，也不把探针用于外部或真实目标。
 
-## Baseline (inline, before any agent)
+## 1. 确定范围与授权
 
-1. **Topology pre-check**: `git log --oneline <base>..<head>` AND `git diff --stat <base> <head>`. A squash-merge makes `base..head` empty while the branch content IS the base's tree — audit framing changes completely. Verify with `git log -1 <squash-commit>` + `git diff --stat origin/master <branch-head>`.
-2. **Establish the baseline**: build / vet / full test green; record the **pre-existing-failure list** (env-only tests, corpus-dependent vendor tests) so agents never re-report them.
-3. **Read the full diff yourself** before dispatching. Personal knowledge of every subsystem is what lets you write per-agent scopes and adjudicate later.
-4. **Write the verified-facts table**: API signatures, budgets, precedents, hard rules (panic=abort, clippy zero, i18n parity, patch markers) — agents don't re-derive what you already verified.
+1. 确认工件类型、目标行为、验收标准、比较基线和用户需要的是审计报告还是“审计并修复”。
+2. 阅读仓库指令和相关计划、规范、issue 或 PR 描述。检查工作区状态，识别并保护用户已有改动。
+3. 只在缺失信息会实质改变审计结果时提问；否则声明合理假设并继续。
+4. 对 Git 工件，读取 [git-scoping.md](references/git-scoping.md)，分别界定“本次变更集”和“当前树状态差异”。不要写死默认分支或远端名称。
+5. 对计划审计，列出计划依赖的关键事实，并定位可验证它们的代码、配置、文档或外部权威来源。
+6. 把临时探针放在仓库外的临时目录中并在结束时清理。若必须在仓库内生成构建产物，先确认不会覆盖或污染用户文件。
 
-## Dispatch (one `task` call, all READ-ONLY)
+遇到下列情况时暂停并请求用户决定：比较基线存在多个合理选择；检查需要凭据、付费资源、外部写入或生产访问；命令可能破坏数据；用户要求“完整审计”但工件规模超出可可靠覆盖的范围。
 
-Dimension template — assign one agent per dimension, crop to the artifact:
+## 2. 建立证据基线
 
-- **security-reviewer**: redaction/sanitization boundaries (real P1s hide here), credential handling, vendored-crate crash surface
-- **reviewer**: core logic / UI-dialog state machines (index math!) / CLI contract (error text, exit codes) / test discrimination / concurrency-memory (bounded waits, RAII release, thread lifetime) / regression truth
-- **scout**: docs consistency (overclaim detection) / git delivery integrity (stray files, markers, exports) / interop-release evidence
+1. 映射变更文件、入口点、调用者、数据边界、公共契约、测试、配置、生成文件和依赖关系。
+2. 阅读约定范围内的完整相关 diff，并根据调用链查看未修改但受影响的代码。对于大型工件，先建立文件到风险的覆盖表；若无法可靠完成全量覆盖，先请求分阶段或缩小范围。只能交付明确标注的部分审计，不得把抽样结果称为整个工件的全面审计。
+3. 建立简短的事实表，区分：已由原始证据确认的事实、待验证主张、未知项。
+4. 运行成本适当且无外部副作用的基线检查。优先使用仓库既有的构建、静态检查和测试命令；长时间或昂贵的全量检查需按任务价值决定，并记录未运行原因。
+5. 记录既有失败，但不要因此屏蔽相关问题。若本次变更扩大、暴露或依赖一个既有缺陷，仍需报告其关系。
 
-Every agent gets: exact paths, the diff (or its path), the verified-facts table, pre-existing-failure list, severity rubric (P0 runtime-break/data-loss/leak; P1 normal-path bug/regression; P2 edge/robustness; P3 style/doc), a "verified by reading vs inferred" marking requirement, and a **verified-correct list** (positive coverage for you). Pre-export per-subsystem diffs to a shared file (e.g. `.audit-share/<name>-diff.txt`) — scouts often cannot run git/bash. Do NOT pass `"outputSchema": false` (preflight rejects it; omit the field).
+## 3. 设计多代理覆盖
 
-## Re-verify every P0/P1/P2 (non-negotiable)
+读取 [review-dimensions.md](references/review-dimensions.md)，按实际风险选择维度，不要机械派齐全部角色。
 
-- Read the actual code site; trace the interleaving; run the logic yourself. Agents misread — the strongest single-source finding still needs your eyes.
-- **Cross-validation rule**: a finding from 2+ independent agents = near-certain truth; single-source findings need the strongest evidence.
-- **Empirical probes are the killer tool**: throwaway programs (delete after) that call the REAL functions — feed sanitizers CJK/Cyrillic input, compute old-vs-new titles, actually run `os.Mkdir`/`os.Rename` for Windows FS claims. Verify platform claims on the host OS.
-- Use `git show <base>:<file>` to see PRE-patch code when a finding questions patch rationale.
+- 小型且局部的变更：通常使用两个子代理，一个检查正确性和契约，一个做对抗性回归审查。
+- 中等变更：使用可用并发槽分别覆盖核心逻辑、风险边界以及测试/交付完整性。
+- 大型、跨子系统或高风险变更：分波次按子系统派发，并让后续新线程对最高风险不变量进行独立重审。
+- 计划类工件：至少覆盖可行性与依赖、失败模式与回滚、验收与可测试性。
 
-## Adjudicate explicitly
+先写覆盖矩阵，为每个子代理指定一个主要维度和一个刻意重叠目标。优先重叠鉴权、权限、资金、不可逆数据操作、迁移、并发、公共 API、持久化一致性和恢复路径。可用并发槽包含主代理；不要为了达到固定数量而制造重复工作。
 
-Every finding gets a verdict in the final report: **ADOPT** (with fix) / **DECIDE** (needs user) / **REJECT** (with reason). Rejection is legitimate — e.g. an agent re-implementing a PowerShell substring gate in Node with equality-compare false-positives. Classify pre-existing vs patch-introduced honestly (`git show base:file` for the old side) — a finding that predates the branch is still reportable, graded differently.
+同时设置与工件规模相称的工作量上限。小型工件默认一轮两个子代理加主代理审查；除非证据冲突或关键结论仍未验证，不要继续增加轮次。大型工件按文件、子系统或不变量划定有界任务，避免多个代理重复运行等价探针。代理停滞或超出合理预算时，使用已完成证据收尾并把缺失覆盖列为残留风险，不要无限等待。
 
-## Fix-verify loop (only when the user wants fixes)
+## 4. 第一阶段：独立发现
 
-1. **Batch by severity**: P0/P1 (data/download behavior, lifecycle/security) first; 3-5 fixes per batch so verification stays reviewable. Todo list per batch.
-2. **Per batch: STOP and verify before the next.** Build + targeted tests green → dispatch 3-4 READ-ONLY scouts, one per subsystem touched, with: exact fix list, acceptance criteria, severity rubric, evidence format (file:line + verified/inferred), and the instruction to hunt NEW regressions and test discrimination — not just confirm the fix.
-3. **Adjudicate their output yourself**: confirmed flaws → fix immediately, re-run affected tests; REFUTED claims → document why; NEW P1/P2 from verifiers → fix before proceeding.
-4. **Second round after all batches**: fix remaining P2/P3 (cheap ones), update CHANGELOG, gofmt only touched files.
-5. **Cleanup LAST**: remove `.audit-share/`, temp probes, worktrees; `git status --porcelain` shows only intended changes; run `lat check` where the repo uses lat.md.
+并行派发当前容量允许的子代理，剩余任务分波次运行。尽可能使用新线程保持独立性。不要向发现阶段代理透露其他代理的结论、预期答案或你怀疑存在的具体缺陷。
 
-## Completion criteria
+每个任务都提供：
 
-- Every accepted finding has a code-level re-verification note in the final report
-- Per-agent verdict table (dimension / finding / your evidence / verdict) + verified-correct list
-- Residual gaps stated honestly: release-build-only risks, untested UI interactions, temp-dir-only interop probes
-- Report: severity table with file:line + evidence, prioritized fix list
+- 精确的工件、路径、比较基线和负责维度
+- 目标行为、验收标准、相关仓库规则和已确认事实
+- 刻意重叠的高风险不变量
+- 允许运行的检查以及已知基线失败
+- 只读边界和禁止的外部副作用
 
-## Known traps (from practice — verify each before accepting)
+要求每个子代理返回：
 
-- **Test discrimination**: would each new test FAIL if the fix were reverted? A test passing on pre-fix code is false confidence (an ordering test that trips the same SQL trigger on both paths).
-- **Docs overclaim**: CHANGELOG/API/lat.md claims exceed code — "409 on concurrent rename" is cross-process-only when an in-process lock serializes; "URL userinfo not logged" may have no code path for that sink.
-- **Fix breaks the legacy data it claims to migrate**: adding a validation rule then validating OLD names on the rename path wedges pre-existing records (downloads error every run; recovery = direct DB edit). Exempt old names or normalize before compare, with a legacy-record migration test.
-- **Dead code left behind**: the fix's new helper replaces a full-row writer that stays alive in tests — the old hazard re-embodies in test-only code.
-- **Newly-activated paths expose latent bugs**: wiring a previously-dead endpoint activates a latent timezone round-trip defect (stored UTC, displayed wall-clock, re-parsed as browser-local → shifts per edit).
-- **Unbounded waits in shutdown hardening**: `activeMutations.Wait()` / `<-startupDone` with no timeout hang forever on a stuck handler; a blocking session.Open with no timeout defeats the startupDone handshake.
-- **Gate semantics**: PowerShell `-notmatch` with a regex-escaped substring PASSES for a 4-part version extension ("1.4.1" ⊂ "1.4.1.0"); equality-compare replications false-positive. Verify actual match semantics.
-- **Rust shift semantics**: `<<` panics ONLY on shift amount >= bit width; shifted-out VALUE bits are silently discarded in debug AND release. "Debug overflow panic" claims for small bounded literals are wrong → DEFENSIVE-ONLY, not a panic fix.
-- **Windows path semantics**: trailing dots/spaces pass validation but Win32 strips them → record/dir divergence; `os.Rename` onto an existing EMPTY dir fails on Windows (no silent replace).
-- **Vacuous tests**: local mirror helpers instead of production functions; `if success { assert }` swallowing the failure branch. Pin production functions (make pub if needed) and assert specific error text.
-- **Squash-merged master**: `base..head` empty ≠ branch empty — always diff base against the branch head.
-- **Lost-update full-row writes**: `UPDATE ... SET a=?,b=?,c=?` from a T0 snapshot silently revert concurrent monotonic writes.
+1. 只列有具体影响的候选问题；不要填充纯风格意见。
+2. 为每项给出严重度、置信度、位置、原始证据、从原因到用户影响的完整路径、触发条件及建议验证方法。
+3. 标注问题是本次引入、既有、还是暂时无法确定。质疑变更必要性时同时检查基线版本。
+4. 区分“直接读到/运行验证”和“推断”。声称某内容不存在前先搜索完整适用范围。
+5. 列出已核验正确的高风险行为和无法覆盖的缺口；没有发现时明确说没有发现，不要虚构问题。
+
+主代理在子代理运行期间独立完成自己的审查，并在阅读代理结论前记录高风险区域的初步判断，降低锚定效应。
+
+## 5. 主代理复核与裁决
+
+合并并去重候选问题。对每个有实际影响的候选项：
+
+1. 打开真实代码或计划现场，沿调用、数据、状态和错误路径追踪，不只阅读局部片段。
+2. 对照基线判断问题是否由本次工件引入、放大或仅为既有问题。
+3. 尽可能运行最小复现、定向测试、静态查询或反例；检查测试是否会在缺陷存在时真正失败。
+4. 检查替代解释、保护条件和不可达路径。代理数量不能替代这一步。
+5. 使用以下裁决：`CONFIRMED`（证据确认）、`NEEDS-DECISION`（真实权衡需用户决定）、`CONDITIONAL`（依赖未验证条件）、`REJECTED`（证据反驳）。
+
+按影响与可达性共同定级：
+
+- **Critical**：现实可达的安全绕过、严重数据丢失或大范围不可恢复故障。
+- **High**：正常或可信路径上会造成重大错误、安全问题、兼容性破坏或发布阻断。
+- **Medium**：有具体影响的边界条件、健壮性、性能、可恢复性或测试缺口。
+- **Low**：影响有限但值得修正的实现、文档或维护问题；不要把无影响的风格偏好列为缺陷。
+
+## 6. 第二阶段：交叉验证
+
+若 Critical/High 候选项没有在发现阶段获得独立重叠、证据存在冲突、主代理仍只能依赖推断，或某个 Medium 候选会显著改变结论，则派发新的只读挑战审查。若两个独立发现过程已经覆盖同一高风险不变量，且主代理用直接代码追踪、测试、最小复现或权威契约确认，则无需为了形式再启动第三个子代理。
+
+需要挑战审查时：
+
+- 用中性语言描述待验证主张和范围，不泄露期望裁决。
+- 要求挑战者尝试同时证明和反驳，检查保护条件、基线版本及最小触发路径。
+- 要求返回原始证据和可复现步骤，而不是“同意/不同意”。
+
+随后由主代理再次裁决。两个代理得出相同结论只提高调查优先级；代码追踪、复现测试或权威契约才提高证据强度。若无法获得新的独立线程，不得把同一代理的第二次回答称为独立交叉验证。对 Critical 结论若因容量或环境无法进行独立挑战，要在报告中明确标为验证缺口。
+
+若最终没有确认问题，只有在最高风险区域已获得两个独立发现过程、主代理核验且关键检查通过时，才称为“未发现已确认缺陷”；绝不声称工件绝对安全或没有 bug。
+
+## 7. 仅在获授权时修复
+
+1. 按依赖和风险把已确认问题分成可审阅的小批次，优先处理 Critical/High。
+2. 保留用户现有改动，实施最小必要补丁。不要顺带重构、更新文档或格式化无关文件。
+3. 每批运行定向检查，再让未参与修复的新只读子代理检查：原问题是否消失、测试是否有判别力、是否产生新回归。
+4. 主代理复核验证结果后再进入下一批。无法验证的修复必须明确标注，不得以测试未运行冒充通过。
+5. 最后运行与变更规模相称的回归检查，并确认工作区只包含预期修改。
+
+## 8. 输出审计报告
+
+先给结论，再给过程。使用按 finding 聚合的报告，不直接倾倒各代理原始输出。
+
+报告至少包含：
+
+- 工件、基线、审计范围、关键假设和最终结论
+- 已确认问题，按严重度排序，并附裁决、位置、证据、影响、触发条件和建议修复
+- 需要用户决定或仍属条件性的项目
+- 被主代理反驳的重大候选项及简要理由
+- 已验证正确的高风险行为
+- 实际运行的检查、结果及既有失败
+- 覆盖矩阵和残留缺口，包括未验证平台、未运行测试和未覆盖交互
+
+若满足第 6 节的独立覆盖阈值，且没有确认问题，写“在已审计范围和已执行检查内未发现已确认缺陷”，并紧接残留风险。若因无子代理、容量、停滞或环境限制而未完成独立交叉验证，改写为“已完成的单代理/部分审查未发现候选项，但未完成独立交叉验证”，并明确不得视为全面无缺陷结论。所有事实性结论尽量附文件位置、命令结果、测试输出或权威来源。
