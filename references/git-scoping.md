@@ -1,67 +1,83 @@
 # Git 工件范围界定
 
-只在审计 Git 分支、PR、commit、工作区或修复批次时读取本文件。目标是同时回答两个问题：本次变更引入了什么，以及目标分支与当前工件的最终树状态有什么差异。
+只在审计 Git 分支、PR、commit、工作区或修复批次时读取本文件。分别报告历史拓扑、审查补丁和最终树状态，不用其中一个替代另外两个。
+
+## 目录
+
+- 通用预检
+- PR 与功能分支
+- 单个 commit、范围与 merge commit
+- 工作区与多 worktree
+- squash、rebase 与 cherry-pick 等价性
+- 子模块、LFS、生成文件与交付卫生
+- 基线归因
 
 ## 通用预检
 
-先读取仓库指令，再运行安全的只读查询：
+先读取上层指令，再运行安全只读查询：
 
 ```bash
 git status --short
 git rev-parse --show-toplevel
 git branch --show-current
+git worktree list --porcelain
 git remote
 git for-each-ref --format='%(refname:short)' refs/remotes/
 ```
 
-不要清理、stash、reset 或覆盖工作区。把已跟踪修改、暂存修改和未跟踪文件都视为用户数据。
+不要 clean、stash、reset、checkout 覆盖或删除工作区。已跟踪修改、暂存修改、未跟踪文件和其他 worktree 都是用户数据。
 
-默认不要输出 `git remote -v` 或原始 remote URL；HTTPS URL 可能包含 userinfo、令牌或敏感查询参数。只有任务确实需要检查远端配置时才读取 URL，并在写入日志、共享上下文或报告前移除凭据和敏感参数。
+默认不要输出 `git remote -v` 或原始 remote URL。只有任务确需检查远端配置时才读取，并在写入日志、证据包或报告前移除 userinfo、令牌和敏感查询参数。
 
-## PR 或功能分支
+## PR 与功能分支
 
-优先从用户、PR 元数据或托管平台获得准确的 base 与 head。若仍有多个合理基线且选择会改变结果，先询问用户。
+优先从用户或当前 PR 元数据获得准确的 base/head，并解析成不可变 commit。若多个基线会改变结论，先询问用户。
 
 ```bash
-merge_base=$(git merge-base <base> <head>)
+git rev-parse <base>^{commit} <head>^{commit}
+git merge-base <base> <head>
 git log --oneline --decorate <base>..<head>
 git diff --stat <base>...<head>
 git diff --name-status <base>...<head>
-git diff --find-renames <base>...<head>
+git diff --find-renames=50% <base>...<head>
 ```
 
-- 三点 diff（`base...head`）从 merge-base 开始，通常表示 PR 希望引入的变更集。
-- 两点 diff（`base head`）比较当前两棵树，表示若把它们视作最终状态时的差异。
-- base 已前进时，两者可能明显不同。审计变更本身以三点 diff 或平台提供的 PR patch 为主；评估集成状态时再检查两点 diff。
-- 同时检查新增、删除、重命名、mode 变化、子模块指针、LFS 指针、生成文件及未被 diff 捕捉的发布配置。
+- 三点 diff（`base...head`）从 merge-base 开始，通常表示 PR 希望引入的补丁。
+- 两点 diff（`base head`）比较当前两棵树，表示最终状态差异。
+- base 已前进时两者可能不同；审查变更以平台 PR patch 或三点 diff 为主，评估集成状态时再检查两点 diff。
+- `--find-renames=50%` 明示默认相似度阈值。若大规模重写使 rename 检测失真，同时查看 `--no-renames`，不要让启发式掩盖新增/删除。
+- 平台 PR diff 可能排除未提交工作区内容；不要把本地脏状态误算进 PR。
 
-不要写死 `origin/master`、`origin/main` 或远端名称。不要仅因 `base..head` 为空就判断没有变更。
+## 单个 commit、范围与 merge commit
 
-## 单个 commit 或 commit 范围
-
-审计普通 commit：
+普通 commit：
 
 ```bash
 git show --stat --summary <commit>
-git diff <commit>^ <commit>
+git show --format=fuller --find-renames <commit>
 ```
 
-根 commit 没有父提交，改用：
+根 commit 没有父提交；`git show <root>` 已能显示其完整补丁。不要使用会解析不存在父提交的 `<root>^`。
+
+范围：
 
 ```bash
-git show --root <commit>
-```
-
-审计范围时区分提交集合和补丁范围：
-
-```bash
-git log --oneline <base>..<head>
+git log --oneline --reverse <base>..<head>
 git diff <base>...<head>
 ```
 
-若用户给出合并 commit，先确认是要审计合并结果、某个父分支的改动，还是冲突解决；不同父提交需要不同 diff。
+merge commit 先确定用户要审计合并结果、某一父分支增量还是冲突解决：
 
-## 工作区改动
+```bash
+git show --cc --stat <merge>
+git show --cc <merge>
+git diff <merge>^1 <merge>
+git diff <merge>^2 <merge>
+```
+
+对 octopus merge 枚举所有父提交。组合 diff 不等于逐父 diff；冲突解决缺陷常只在组合视图或逐父对照中出现。
+
+## 工作区与多 worktree
 
 分别检查：
 
@@ -69,30 +85,57 @@ git diff <base>...<head>
 git diff
 git diff --cached
 git status --short
+git worktree list --porcelain
 ```
 
-`git diff` 不包含未跟踪文件。读取与任务相关的未跟踪文件，但不要自动加入、删除或改名。若用户要求审计“全部本地修改”，三类都要覆盖。
+`git diff` 不含未跟踪文件。若用户要求“全部本地修改”，读取相关未跟踪文件，但不自动加入、删除或改名。多 worktree 的分支、HEAD 和脏状态相互独立；所有命令都从目标 worktree 运行。
 
-## 已合并、rebase 或 squash 的工件
+## squash、rebase 与 cherry-pick 等价性
 
-不要从提交数量或空范围推断内容关系。组合使用：
+不要从 commit 数量或空范围推断内容关系：
 
 ```bash
 git merge-base <base> <head>
 git merge-base --is-ancestor <head> <base>
 git diff --stat <base> <head>
 git rev-parse <base>^{tree} <head>^{tree}
+git cherry -v <base> <head>
 ```
 
-再结合 PR 元数据、合并方式和实际 tree diff 判断。典型 squash merge 不保留原分支提交的祖先关系；空的 `base..head` 也可能只是 head 已成为 base 的祖先。把历史拓扑与内容差异分别报告。
+- 典型 squash merge 不保留原分支提交的祖先关系；原提交范围通常仍非空，但补丁可能已等价进入 base。
+- `base..head` 为空通常说明 head 已是 base 的祖先或两者相同，不是 squash 的通用特征。
+- `git cherry` 使用 patch-id 帮助识别等价补丁，但对 squash、多提交重排、部分 cherry-pick 和冲突改写可能失效；必须回落到 tree diff 和实际行为。
+- 比较两轮 rebase/cherry-pick 序列时使用：
+
+```bash
+git range-diff <old-base>..<old-head> <new-base>..<new-head>
+```
+
+`range-diff` 用于提交序列对应，不替代最终 tree diff、测试或运行时验证。
+
+## 子模块、LFS、生成文件与交付卫生
+
+根据仓库实际配置运行存在的工具：
+
+```bash
+git diff --submodule=log <base>...<head>
+git submodule status --recursive
+git lfs ls-files
+git diff --check <base>...<head>
+```
+
+- 检查 `.gitattributes` 后再判断 LFS；没有 Git LFS 时记录未验证，不要安装。
+- 子模块 pointer 变化要核对目标 commit 可获取、来源可信以及上层代码兼容。
+- 核对计划/提交集合与变更文件是否一致：遗漏文件、杂散文件、冲突标记、patch 标记、vendor 修改、lockfile/workspace、导出表、生成物和 `.gitignore`。
+- 生成物若应提交，确认源文件与生成物同步；若不应提交，确认没有污染交付树。
 
 ## 基线归因
 
-候选问题涉及“以前是否如此”时，读取基线版本而不是猜测：
+涉及“以前是否如此”时读取基线版本：
 
 ```bash
 git show <base>:<path>
 git blame <head> -- <path>
 ```
 
-`blame` 只用于定位历史线索，不用于判断责任。若问题早已存在，但新变更使其可达、扩大影响或阻碍恢复，分别描述既有根因和本次变更的增量影响。
+`blame` 只定位历史线索，不判断责任。若问题既有但本次变更使其可达、扩大影响或阻碍恢复，分别写清既有根因与增量影响。
