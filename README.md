@@ -14,6 +14,14 @@
 - 默认只审计、不修改项目；要求修复时须显式说明，修复受 SKILL §6 分批与复核约束。
 - 详细流程见 `SKILL.md`；完成标准见 `references/reporting.md` 完成清单。
 
+## 安装
+
+- 将本仓库放入 agent 的 skills 目录，目录名保持 `cross-validated-project-audit`，例如 `~/.omp/agent/skills/cross-validated-project-audit/`。
+- `SKILL.md` 必须位于目录根；`references/`、`agents/`、`assets/` 随目录保留，skill 通过相对路径按需读取。
+- `agents/openai.yaml` 为惰性元数据（omp 只消费 SKILL.md frontmatter，不读取本文件），无需改动；`assets/icon.svg` 为技能图标。
+- 无需显式调用：符合 description 触发条件（全面/多代理审计或审查、发布或合并就绪评估、交叉验证修复结果）时自动加载。
+- 自检：运行底部"验证"命令，确认术语扫描 0 命中、三处一致。
+
 ## 文件结构
 
 | 文件 | 何时读取 | 内容 |
@@ -30,7 +38,7 @@
 
 ## 版本谱系
 
-`universal-audit-review-v0.1/`（助手旧版基线）→ `audit-project-artifacts-v1.0/`（用户手动首版）→ `v1.1/`（第一轮审计整改）→ `v1.2/`（第二轮整改，现行最优前身）→ **`cross-validated-project-audit/`（本版，已去版本号，为唯一现行版）**。逐行对比依据见仓库根 `分析对比报告.md`。
+`universal-audit-review-v0.1/`（助手旧版基线）→ `audit-project-artifacts-v1.0/`（用户手动首版）→ `v1.1/`（第一轮审计整改）→ `v1.2/`（第二轮整改，现行最优前身）→ **`cross-validated-project-audit/`（本版，已去版本号，为唯一现行版）**。各版本逐行 diff 对比依据留存于本机工作目录。
 
 ## 本版相对 v1.2 的变更
 
