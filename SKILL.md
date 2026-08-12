@@ -1,9 +1,9 @@
 ---
-name: cross-validated-project-audit-v1-3
+name: cross-validated-project-audit
 description: "对分支、PR、commit、工作区改动、已实现功能、配置、迁移或实施计划执行多代理交叉审计，给出发布/合并门禁或修复验证。用户要求 全面/多代理 审计或审查、发布或合并就绪评估、交叉验证修复结果 时使用。Use when the user asks for a comprehensive or multi-agent audit/review of a branch, PR, commit, plan, or implemented feature, a release/merge gate check, or cross-validated fix verification. 不用于快速摘要、纯风格检查或普通窄范围问答。"
 ---
 
-# 通用多代理审计 v1.3
+# 通用多代理审计
 
 多个独立子代理并行发现，主代理统一复核、交叉验证并裁决。把子代理当作独立的调查视角，不当作投票器：代理共识只提高调查优先级，代码追踪、真实运行或权威契约才提高证据等级。
 

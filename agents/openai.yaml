@@ -1,7 +1,7 @@
 interface:
-  display_name: 交叉验证多代理审计 v1.3
+  display_name: 交叉验证多代理审计
   short_description: 多个只读代理独立审查交叉验证，由主代理统一验证并裁决项目与发布风险
-  default_prompt: 使用 $cross-validated-project-audit-v1-3 对这个项目工件执行全面、只读、交叉验证的多代理审计，并给出明确门禁结论。
+  default_prompt: 使用 $cross-validated-project-audit 对这个项目工件执行全面、只读、交叉验证的多代理审计，并给出明确门禁结论。
   icon_small: assets/icon.svg
   icon_large: assets/icon.svg
 policy:
