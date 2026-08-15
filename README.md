@@ -8,6 +8,8 @@
 
 - **交叉验证**：最高风险不变量由两个独立发现过程覆盖；子代理结论只是调查线索，代码追踪、真实运行或对应版本权威契约才是证据。
 
+- **状态落盘与断点恢复**：范围、候选账本、覆盖矩阵与子代理发现产物启动即写入仓库外隔离目录，以盘上为真相；会话中断可续审，结束后归档供跨轮复盘（`references/audit-ledger.md`）。
+
 - **主代理统一验证调度**：界定范围、记录锚定前判断、复核每个候选问题并裁决（`CONFIRMED` / `NEEDS-DECISION` / `CONDITIONAL` / `REJECTED`），输出门禁（`READY` / `READY-WITH-CONDITIONS` / `BLOCKED` / `INCOMPLETE`）。
 
 ## 使用
@@ -41,6 +43,8 @@
 | `references/behavioral-verification.md`   | 运行时主张      | 公共入口验证、7 步安全执行序、证据四态                  |
 | `references/platform-runtime-patterns.md` | 平台/编码/语言语义 | Windows、Unicode、PowerShell、Rust、第三方差异 |
 | `references/fix-verification.md`          | 实施修复时      | 修复映射、动态分批、新代理复核、裁决反馈                  |
+| `references/audit-ledger.md`               | 每次使用（启动即读） | 账本/矩阵 schema、写盘纪律、断点恢复、归档与降级         |
+| `references/auditor-persona.md`            | 派发子代理前     | 平台中性审计员模板、实例化规则与检查表                    |
 | `references/reporting.md`                 | 输出报告前      | 报告层级、门禁映射、完成清单                        |
 | `agents/openai.yaml`                      | 无需读取       | 惰性元数据；omp 只消费 `SKILL.md` frontmatter  |
 
@@ -48,5 +52,5 @@
 
 - **harness 无关**：不指名 task/hub/agent:// 等编排接口，子代理与主代理的统一调度由当前平台能力承担。
 
-- **7 个 references 的认知负载**：按触发条件渐进披露，换取 `SKILL.md` 主文件精简与常驻负载最小化。
+- **9 个 references 的认知负载**：按触发条件渐进披露，换取 `SKILL.md` 主文件精简与常驻负载最小化。
 
