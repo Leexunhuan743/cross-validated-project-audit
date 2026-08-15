@@ -63,7 +63,7 @@
 
 - `验证方式`：`code-trace` / `runtime-probe` / `contract` / `test-discrimination` / `minimal-probe` / `unknown`（对应 `SKILL.md` §4 与 `behavioral-verification.md` 的验证方式；尚未验证写 `unknown`）。需要保留实证档案（探针输出、契约摘录、判别性测试记录）时，写入 `verification/<账本ID>.md` 并在该列写 `见 verification/<账本ID>.md`；无需保留时只写枚举值。
 - `裁决`：四终态 `CONFIRMED` / `NEEDS-DECISION` / `CONDITIONAL` / `REJECTED`；**新候选可直接写终态**。`待复核` / `已复核` 是可选中间态，仅在主代理暂缓裁决时使用，不是必经阶梯。终态后修改必须同时在变更记录说明理由。
-- `发现引用`：对应 findings 条目 id；主代理直接发现写 `—`。
+- `发现引用`：对应 findings 条目 id；主代理直接发现的候选同样写入主代理专用 findings 文件（`findings/main.md`，子代理不得写）并在此引用，不允许用 `—` 跳过内容落盘。
 - `模式范围`：`ISOLATED` / `SYSTEMIC` / `UNKNOWN`，仅模式搜索后填写。
 - `反证/备注`：`REJECTED` 必填反证；`CONDITIONAL` 必填缺失条件；`NEEDS-DECISION` 必填选项与影响。
 - `主代理修正`：只记录与 findings 不一致的裁决输出（位置/严重度/归因/证据/验证结论等），并附依据；一致写 `—`。账本其余列不得出现与 findings 不一致的内容。
@@ -118,7 +118,7 @@
 
 - 置信度只用于主代理复核排序，不入 ledger、不进最终报告；报告定稿以裁决与严重度为准。
 - 没有候选问题时写"无候选问题"，并附覆盖与缺口说明。
-- 子代理不得读、写账本或其他代理的文件；`<finding-id>` 在本次审计内唯一。
+- 子代理只写自己的文件，不得读、写账本或其他代理的文件；主代理直接发现写入 `findings/main.md`，与子代理文件隔离；`<finding-id>` 在本次审计内唯一。
 
 ## 3. 落盘纪律
 

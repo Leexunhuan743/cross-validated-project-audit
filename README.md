@@ -14,7 +14,7 @@
 
 ## 使用
 
-- 自动触发：触发分支与负向范围以 `SKILL.md` frontmatter description 为准。
+- 自动触发：触发与排除范围以 `SKILL.md` frontmatter description 为准。
 
 - 默认只审计、不修改项目；要求修复须显式说明，修复受 `SKILL.md` §6 分批与复核约束。
 
@@ -38,7 +38,7 @@
 | ----------------------------------------- | ---------- | ------------------------------------- |
 | `SKILL.md`                                | 每次使用       | 主流程：操作契约 + §1–§7                      |
 | `references/git-scoping.md`               | Git 工件     | 范围界定命令、拓扑预检、交付卫生                      |
-| `references/review-dimensions.md`         | 设计覆盖时      | 4 证据轴、14 实现维、7 计划维                    |
+| `references/review-dimensions.md`         | 设计覆盖时      | 4 证据轴、14 实现维、7 计划维 + FACT/JUDGMENT 裁决与计划就绪条件                    |
 | `references/core-failure-patterns.md`     | 建立风险地图时    | 13 条失败模式 + 模式范围方法（含安全反例）                    |
 | `references/behavioral-verification.md`   | 运行时主张      | 公共入口验证、7 步安全执行序、证据四态                  |
 | `references/platform-runtime-patterns.md` | 平台/编码/语言语义 | Windows、Unicode、PowerShell、Rust、第三方差异 |

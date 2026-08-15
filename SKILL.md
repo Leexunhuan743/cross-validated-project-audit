@@ -1,6 +1,6 @@
 ---
 name: cross-validated-project-audit
-description: "多代理交叉审计：对分支/PR/commit/工作区/计划/配置/迁移/功能执行只读独立审查，输出发布·合并门禁或修复验证。Use for multi-agent audit, release/merge gate, or fix verification. 仅在需要门禁结论或交叉验证时使用（风格检查与快速摘要除外）。"
+description: "多代理交叉审计：对分支/PR/commit/工作区/计划/配置/迁移/功能执行只读独立审查，输出发布/合并就绪评估与门禁结论，或修复验证。Use for multi-agent audit, release/merge readiness or gate check, or fix verification. 仅在需要门禁结论或交叉验证时使用（风格检查与快速摘要除外）。"
 ---
 
 # 通用多代理审计
@@ -46,7 +46,7 @@ description: "多代理交叉审计：对分支/PR/commit/工作区/计划/配�
 
 - 小型局部变更：通常两个子代理，一个查需求/契约、一个查工程正确性/对抗性回归，重叠核心不变量。
 - 大型或高风险变更：按子系统分波次，用不同方法独立重审最高风险不变量。
-- 派发时为每个子代理写死截止条件（轮数/时间/证据量），达到即用已完成证据收尾并披露缺口，不无限等待。
+- 派发时为每个子代理写死截止条件（轮数/时间上限 + 证据要求），达到即用已完成证据收尾并披露缺口，不无限等待。
 
 写覆盖矩阵并随里程碑同步到 `coverage.md`（列定义、状态逐级推进与核对规则见 references/audit-ledger.md §2.3）。
 
