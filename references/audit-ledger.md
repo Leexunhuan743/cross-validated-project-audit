@@ -44,7 +44,8 @@
 ### 2.2 `ledger.jsonl`（每候选一行）
 
 ```jsonc
-{"id":"C1","rev":1,"axis":"engineering","source":"SA-fix","location":"vendor/…/model.rs:253",
+{"id":"C1","rev":1,"axis":"engineering","source":"SA-fix","findingRef":"SA-fix-3",
+ "location":"vendor/…/model.rs:253",
  "severity":"High/P1","attribution":"本次引入","evidence":"DIRECT",
  "verification":"code-trace","verdict":"open","scope":null,
  "rebuttal":null,"probeCleanup":true,"updatedAt":"ISO8601"}
@@ -56,6 +57,8 @@
 |---|---|
 | `verdict` | 状态：`open` → `verified` → 四终态；迁移见下 |
 | `evidence` | `DIRECT`（实际读取/运行确认）/ `INFERRED`（推断） |
+| `verification` | `code-trace` / `runtime-probe` / `contract` / `test-discrimination` / `minimal-probe` / `unknown`（对应 `SKILL.md` §4 与 `behavioral-verification.md` 的验证方式；尚未验证写 `unknown`） |
+| `findingRef` | 来源 findings 条目 id；主代理直接发现写 `null` |
 | `scope` | `ISOLATED` / `SYSTEMIC` / `UNKNOWN`，仅模式搜索后填写 |
 | `rebuttal` | `rejected` 必填反证；`conditional` 必填缺失条件；`needs_decision` 必填选项与影响 |
 | `probeCleanup` | 探针/临时文件是否已清理；无探针写 `true` |
@@ -64,8 +67,9 @@
 规则：
 
 - 新候选以 `verdict:"open"` 追加；主代理复核后追加 `rev+1` 的 `verified` 行；终态裁决为 `confirmed` / `needs_decision` / `conditional` / `rejected`。
-- **修订 = 追加新行**（同 `id`、`rev+1`），读取时同 `id` 取最大 `rev`；不原地改旧行。
+- **修订 = 追加新行**（同 `id`、`rev+1`），每行是该候选的**全量快照**：修订行必须重述全部字段，读取时取同 `id` 最大 `rev` 的整行作为当前状态；不跨 rev 合并字段，不原地改旧行。
 - 状态迁移白名单（其余迁移非法）：`open → verified | rejected`；`verified → confirmed | needs_decision | conditional | rejected`；四终态不再变化，只能追加修订行。
+- 机器键与报告词表一一对应：`confirmed` ↔ `CONFIRMED`、`needs_decision` ↔ `NEEDS-DECISION`、`conditional` ↔ `CONDITIONAL`、`rejected` ↔ `REJECTED`；`open`/`verified` 是账本内部流转态，不出现在报告。
 - 一行一条 JSON，行内不得出现未转义换行；读取时坏行跳过并记录，不中断整个账本。
 - 快照输出时 `location`、`rebuttal` 截断（约 300/200 字），全文只在盘上。
 
@@ -76,11 +80,13 @@
   "agent":"SA-fix","axis":"engineering","primaryDim":"正确性与不变量",
   "paths":"vendor/lepton_jpeg",
   "overlapInvariants":["get_block 下溢"],
+  "findingRefs":["SA-fix-3","SB-7"],
   "evidenceMethod":"code-trace",
   "status":"verified"}]
 ```
 
 - `status` 单向推进：`planned → dispatched → reported → verified`；一个单元只有在对应发现已聚合、主代理复核完成后才能标 `verified`；无法判定的单元留在当前状态并在报告"残留缺口"披露。
+- `findingRefs` 显式链接本单元产出的发现条目（findings id）。`verified` 的机械判据：`findingRefs` 非空时，每条都已聚合入账（`ledger.jsonl` 中存在 `findingRef` 引回）且对应候选全部到达终态；无候选问题（`findingRefs` 为空）时，仍需主代理直接复核后才可标 `verified`。
 - 最高风险不变量必须有至少两个单元覆盖，且都达到 `verified`，才允许使用"未发现已确认缺陷"措辞（`reporting.md` §6）。
 
 ### 2.4 `findings/<axis>-<agent>.jsonl`（子代理发现产物）
@@ -119,5 +125,6 @@
 ## 6. 降级与披露
 
 - 无法写盘（无文件能力、只读沙箱、平台限制）：继续审计，但改为会话内账本；报告"范围与基线"注明"审计状态未持久化"，且 `reporting.md` 完成清单对应项不得打勾。
+- 唯一可写目录就是被审计仓库：同样视为无法写盘——不得把审计状态写进被审计仓库（污染交付树、违反只读契约），改用会话内账本并披露。
 - 单代理、窄范围且用户明确要快速结果：可最小化账本（至少 `audit.json` + `ledger.jsonl`），但降级必须披露。
 - 降级不改变其他纪律：子代理只读、DIRECT/INFERRED 标注、证据轴独立照常执行。
