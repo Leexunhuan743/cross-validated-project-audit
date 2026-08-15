@@ -39,6 +39,8 @@ git for-each-ref --format='%(refname:short)' refs/remotes/
 
 若范围为空，区分“确实无内容”“补丁已等价合入”“head 已是 base 祖先”“比较方式错误”和“目标 worktree 错误”，不要把空输出直接当结论。
 
+shallow clone 或缺对象导致 `merge-base` 失败时，回退到平台 PR 元数据/补丁并显式记录；无法解析的拓扑列为残留缺口，不要推断。
+
 ## PR 与功能分支
 
 优先从用户或当前 PR 元数据获得准确的 base/head，并解析成不可变 commit。若多个基线会改变结论，先询问用户。
@@ -138,6 +140,7 @@ git diff --check <base>...<head>
 - 子模块 pointer 变化要核对目标 commit 可获取、来源可信以及上层代码兼容。
 - 核对计划/提交集合与变更文件是否一致：遗漏文件、杂散文件、冲突标记、patch 标记、vendor 修改、lockfile/workspace、导出表、生成物和 `.gitignore`。
 - 生成物若应提交，确认源文件与生成物同步；若不应提交，确认没有污染交付树。
+- 二进制/大文件变更用 `git diff --numstat -- <path>` 识别；无法逐行审查的列为残留缺口，不默认跳过也不默认放行。
 
 ## 基线归因
 

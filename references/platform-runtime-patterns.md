@@ -30,6 +30,13 @@
 - 不把 defensive-only、被类型系统排除或真实输入不可达的情况升级为运行时缺陷。
 - 构建模式差异无法验证时标为 `CONDITIONAL` 并写明缺失条件。
 
+## Node.js、npm 与包发布语义
+
+- 区分 ESM/CJS 解析（`type` 字段、扩展名、default/named export 互操作）与 `require` 缓存行为；在目标 Node 版本复现，不用记忆替代。
+- `child_process` 在 Windows 的 `.bat/.cmd` 执行、shell 差异与路径空格需要显式 `shell`/`windowsHide` 决策；退出码与信号跨平台不等价。
+- 包发布内容由 `files`/`.npmignore`/`exports` 决定，安装产物可能与源码树不同；审计发布面时以 `npm pack --dry-run` 的实际清单为准。
+- 未捕获异常、unhandled rejection、`process.exitCode` 的默认行为随版本变化；涉及进程生命周期时锁定目标 Node 版本契约。
+
 ## 第三方库、协议和 release/debug 差异
 
 - 锁定实际版本、feature、平台、编译选项和调用方式；不要用最新文档替代当前版本契约。

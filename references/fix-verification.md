@@ -8,6 +8,8 @@
 
 `候选问题 | 根因模式 | 已知实例 | 修复范围 | 明确排除项 | 行为变化 | 验收测试 | PRE-fix 应失败 | 回归范围 | 残留风险`
 
+修复映射表写入审计状态目录的 `fix-map.md`（每候选一行，随批次推进更新；审计状态目录见 `references/audit-ledger.md` §1）。
+
 读取 PRE-fix 代码和原始报告，核对实际 diff、调用者、公共入口和测试，不只看 commit message 或"测试已通过"。
 
 ## 2. 动态划分批次
@@ -31,6 +33,8 @@
 | verify-batch-1 | fix-batch-1 | —   | — | … | 复核者确认原问题消失 |
 | 综合回归 | 全部 verify 批次 | — | — | … | 无新 Critical/High |
 ```
+
+批次依赖图写在 `fix-map.md` 顶部，随批次状态同步更新。
 
 批间门规则：
 
@@ -70,7 +74,7 @@
 - 被替换的旧入口是否仍可达？
 - 修复是否引入新的 Critical/High/Medium？
 
-复核者保持只读，不为满足形式自行修改项目。
+复核者保持只读，不为满足形式自行修改项目。复核者的发现同样写入其 findings 文件（`findings/reviewer-<批次>.md`，模板见 `references/audit-ledger.md` §2.4）。
 
 ## 6. 裁决反馈
 
@@ -81,6 +85,8 @@
 - `CONDITIONAL`：写清缺失环境、平台或契约，不冒充已验证。
 
 每批更新候选账本和修复映射，主代理确认门槛通过后才进入下一批。
+
+`CONFIRMED-FLAW` / `REJECTED-CLAIM` / `MISSED-INSTANCE` / `NEW-REGRESSION` 是批内反馈，不写入账本裁决列；只有最终裁决、修正事件或新回归候选才按 `references/audit-ledger.md` §2.2 入账。
 
 ## 7. 收尾门槛
 
