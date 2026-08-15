@@ -8,13 +8,13 @@
 
 - **交叉验证**：最高风险不变量由两个独立发现过程覆盖；子代理结论只是调查线索，代码追踪、真实运行或对应版本权威契约才是证据。
 
-- **状态落盘与断点恢复**：范围、候选账本、覆盖矩阵与子代理发现产物启动即写入仓库外隔离目录（Markdown 账本，零机器格式维护负担），以盘上为真相；会话中断可续审，结束后归档供跨轮复盘（`references/audit-ledger.md`）。
+- **状态落盘与断点恢复**：范围、候选账本、覆盖矩阵与子代理发现产物启动即写入仓库外隔离目录（Markdown 账本，零机器格式维护负担）——盘上即真相；会话中断可续审，结束后归档供跨轮复盘（`references/audit-ledger.md`）。
 
 - **主代理统一验证调度**：界定范围、记录锚定前判断、复核每个候选问题并裁决（`CONFIRMED` / `NEEDS-DECISION` / `CONDITIONAL` / `REJECTED`），输出门禁（`READY` / `READY-WITH-CONDITIONS` / `BLOCKED` / `INCOMPLETE`）。
 
 ## 使用
 
-- 自动触发：description 触发词见 `SKILL.md` frontmatter。中文："全面/多代理审计或审查、发布或合并就绪评估、交叉验证修复结果"；英文："comprehensive or multi-agent audit/review、release/merge gate check、cross-validated fix verification"。
+- 自动触发：触发分支与负向范围以 `SKILL.md` frontmatter description 为准。
 
 - 默认只审计、不修改项目；要求修复须显式说明，修复受 `SKILL.md` §6 分批与复核约束。
 
