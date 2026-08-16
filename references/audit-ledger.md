@@ -4,12 +4,20 @@
 
 审计状态一律用 **Markdown 作为唯一作者格式**：人机皆可直接读写，无转义与机器格式维护负担。机器格式（如 JSONL）不在纯 skill 阶段手写；平台具备会话/事件日志读取能力时，由配套插件以确定性 reducer 投影生成。
 
-## 1. 状态目录（必须仓库外）
+## 1. 状态目录（工作目录 `.audits/`）
 
-审计状态一律写在**被审计仓库之外**的可写目录。默认状态根 = **系统临时目录**（Windows：`%TEMP%`；其他平台：`$TMPDIR` 或 `/tmp`）；会话工作区或用户状态目录仅在显式指定时使用。禁止写入被审计仓库——否则污染交付树，违反只读契约（`SKILL.md` 操作契约）。注意：系统可能清理临时目录；需要跨重启、跨轮长期保留的审计，应改用持久状态根并在 `audit.md` 记录。
+审计状态写在**工作目录**下的 `.audits/`。初始化时主代理按顺序处理忽略规则：
+
+1. 工作目录是 Git 仓库：运行 `git check-ignore .audits/`——已被忽略则什么都不写；
+2. 未忽略时，把 `.audits/` 追加进 `.git/info/exclude`（Git 本地排除文件，不产生 `git status`/diff，不属于交付内容）；`.git/info/exclude` 不可写但 `.audits/` 可写：披露并继续（`.audits/` 会出现在 `git status`，不得提交其中内容）；
+3. 用户明确要求忽略规则随仓库提交时，才写项目 `.gitignore`，并在报告中披露这行项目修改；
+4. 工作目录不是 Git 仓库：直接使用 `.audits/`，无需忽略规则；
+5. `.audits/` 不可写时改用会话内账本（用同样的 Markdown 表格在对话中维护）并披露。
+
+其余项目文件仍遵守只读契约。
 
 ```text
-<状态根>/agent-audits/<auditId>/
+<工作目录>/.audits/<auditId>/
 ├── audit.md            # 审计定义、范围、基线、假设、门禁目标
 ├── coverage.md         # 覆盖矩阵（含每单元状态）
 ├── ledger.md           # 候选账本（当前状态表 + 变更记录）
@@ -17,11 +25,11 @@
 ├── findings/           # 各子代理发现产物
 │   └── <axis>-<agent>.md
 ├── verification/       # 可选：主代理实证档案（探针/契约/测试证据），verification/<账本ID>.md
-└── probes/             # 主代理批准的仓库外隔离探针（结束时清理）
+└── probes/             # 主代理批准的隔离探针（结束时清理）
 ```
 
 - `auditId = sanitizeKey(审计名)`：只保留字母、数字、`-`、`_`，其余折叠为 `-`；纯符号名直接用 `audit-<8 位短摘要>`；结果超过 32 字符时取前 24 字符 + `-` + 8 位短摘要；禁止路径分隔符、`..` 与空 id。
-- 主代理在审计开始时选定状态根并记录到 `audit.md`，报告中必须附该路径。
+- 主代理在审计开始时解析工作目录的**绝对路径**并记录到 `audit.md` 的 `stateDir`；检查、恢复与归档一律按该绝对路径定位，不得引用环境变量（受限环境可能重定向环境变量，导致真实目录被判缺失）。报告中必须附该路径。
 
 ## 2. 文件模板
 
@@ -32,8 +40,8 @@
 |---|---|
 | id | lep-2026-08 |
 | name | LEPTON 交叉审计 v1.5 |
-| ownerKey | <平台会话 id 或等价标识；拿不到时写 startedAt 时间戳值> |
-| stateDir | %TEMP%\agent-audits\lep-2026-08（Windows 示例；其他平台用 $TMPDIR 或 /tmp） |
+| ownerKey | <平台会话 id 或等价标识；拿不到时写 startedAt 紧凑时间戳（格式见下）> |
+| stateDir | <工作目录绝对路径>\.audits\lep-2026-08（解析后的绝对路径，不写环境变量） |
 | artifact | branch；base: 4943fb2；head: …；path: … |
 | mode | audit-only / audit-and-fix / fix-verification |
 | gate | 最终报告前填写：READY / READY-WITH-CONDITIONS / BLOCKED / INCOMPLETE |
@@ -44,7 +52,7 @@
 | startedAt / updatedAt | ISO8601 |
 ```
 
-- `ownerKey` 必须**唯一标识主会话/主代理**：优先取平台会话 id 或等价标识；禁止通用占位符（如 `dsh-session`、`default`、`main`、`unknown`、空串、审计名本身）；确实拿不到时直接写 `startedAt` 的时间戳值，不得写占位符。
+- `ownerKey` 必须**唯一标识主会话/主代理**：优先取平台会话 id 或等价标识；禁止通用占位符（如 `dsh-session`、`default`、`main`、`unknown`、空串、审计名本身）；确实拿不到时直接写 `startedAt` 的时间戳值，不得写占位符。时间戳值用**紧凑格式** `20260815T215947+08`（无冒号、无空格，保留时区后缀）——冒号在 Windows 文件名中非法，且避免归档键过长。
 - `id`、`ownerKey`、`stateDir` 初始化后不再改动；写错时在报告中披露并按断点恢复重建。
 
 ### 2.2 `ledger.md`（候选账本）
@@ -61,7 +69,7 @@
 
 列取值：
 
-- `验证方式`：`code-trace` / `runtime-probe` / `contract` / `test-discrimination` / `minimal-probe` / `unknown`（对应 `SKILL.md` §4 与 `behavioral-verification.md` 的验证方式；尚未验证写 `unknown`）。需要保留实证档案（探针输出、契约摘录、判别性测试记录）时，写入 `verification/<账本ID>.md` 并在该列写 `见 verification/<账本ID>.md`；无需保留时只写枚举值。
+- `验证方式`：`code-trace` / `runtime-probe` / `contract` / `test-discrimination` / `minimal-probe` / `unknown`（对应 `SKILL.md` §4 的验证步骤与 `behavioral-verification.md` 的验证方式；尚未验证写 `unknown`）。需要保留实证档案（探针输出、契约摘录、判别性测试记录）时，写入 `verification/<账本ID>.md` 并在该列写枚举值 + `（见 verification/<账本ID>.md）`；无需保留时只写枚举值。
 - `裁决`：四终态 `CONFIRMED` / `NEEDS-DECISION` / `CONDITIONAL` / `REJECTED`；**新候选可直接写终态**。`待复核` / `已复核` 是可选中间态，仅在主代理暂缓裁决时使用，不是必经阶梯。终态后修改必须同时在变更记录说明理由。
 - `发现引用`：对应 findings 条目 id；主代理直接发现的候选同样写入主代理专用 findings 文件（`findings/main.md`，子代理不得写）并在此引用，不允许用 `—` 跳过内容落盘。
 - `模式范围`：`ISOLATED` / `SYSTEMIC` / `UNKNOWN`，仅模式搜索后填写。
@@ -122,26 +130,25 @@
 
 ## 3. 落盘纪律
 
-- 按自然里程碑批量落盘，不要求每个微步骤写盘，但**每个里程碑必须同步对应状态**：派发完成（`audit.md` + `coverage.md` 初始化，状态→`dispatched`）、子代理报告到达（findings 落盘，状态→`reported`，随后聚合入账）、每候选复核定稿（实证档案写入 `verification/`、`coverage.md` 写 `核对` 映射后标 `verified`）、模式范围定稿、门禁输出（回填 `gate`）。禁止收尾时一次性把 `planned` 补写为 `verified`。
+- 按自然里程碑批量落盘，不要求每个微步骤写盘，但**每个里程碑必须同步对应状态**：派发完成（`audit.md` + `coverage.md` 初始化、忽略规则已处理，状态→`dispatched`）、子代理报告到达（findings 落盘，状态→`reported`，随后聚合入账）、每候选复核定稿（实证档案写入 `verification/`、`coverage.md` 写 `核对` 映射后标 `verified`）、模式范围定稿、门禁输出（回填 `gate`）。禁止收尾时一次性把 `planned` 补写为 `verified`。
 - 每次写盘后核对盘面与当前结论一致；盘上内容与最终报告不一致视为缺陷。
 - 子代理无法写盘：全文内联返回，主代理代写入对应 findings 文件并注明"主代理代写"；这属于已披露降级，不改变"盘上即真相"的要求。
-- 唯一可写目录就是被审计仓库：视为无法写盘——不得把审计状态写进被审计仓库（污染交付树、违反只读契约），改用会话内账本并披露。
+- 工作目录不可写：改用会话内账本（用同样的 Markdown 表格在对话中维护）并披露。
 - 凭据、令牌、真实用户数据不回显：脱敏后入账，原文只保留给用户指定的安全位置或直接丢弃。
 
 ## 4. 断点恢复
 
-1. 读取 `<状态根>/agent-audits/` 下同 `auditId` 的 `audit.md` 与 `coverage.md`，还原工件、基线、假设与矩阵状态。
+1. 读取 `.audits/<auditId>/` 下的 `audit.md` 与 `coverage.md`，还原工件、基线、假设与矩阵状态。
 2. 按 `ledger.md` 状态表中未到终态的行逐条继续复核/裁决；变更记录用于还原过程与理由。
 3. 以 coverage `发现条目` 与 ledger `发现引用` 的差集为准，把"已报告、未聚合"的条目补聚合进账本。
 4. 在报告"范围与基线"注明"恢复自 `<状态目录路径>`，中断点为 X，恢复后续审 N 项"。
-5. 无法定位状态目录时视为新审计，并在报告中披露"历史状态未找到，从零开始"。
+5. 先在 `.audits/<auditId>/` 找，再查 `.audits/archive/` 下同名目录；都没有才视为新审计，并在报告中披露"历史状态未找到，从零开始"。
 
 ## 5. 归档与跨轮复盘
 
-- 审计结束：清理 `probes/` 与一切临时探针；随后把状态目录移入 `<状态根>/agent-audits/archive/<ownerKey>--<auditId>/`，报告附归档路径。
-- 状态根在 `%TEMP%` 时，归档可能随系统清理而丢失：需要长期保留的审计，归档时移到用户状态目录等持久位置，并在报告记录实际归档路径。
+- 审计结束：清理 `probes/` 与一切临时探针；随后把状态目录移入 `.audits/archive/<ownerKey>--<auditId>/`，报告附归档路径。
 - 归档键必须复合且**两段都唯一**：`ownerKey` 满足 §2.1 的唯一性规则（禁止占位符）；`auditId` 来自审计名。可重复的业务审计名不能单独作键，否则同名审计跨会话撞键。
-- 移入前检查目标归档路径：已存在同名时追加 `-<startedAt 紧凑值>` 或短序号消歧，并在报告记录实际归档名；禁止覆盖或静默丢弃。
+- 移入前检查目标归档路径：已存在同名时追加 `-<startedAt 紧凑值>`（格式见 §2.1）或短序号消歧，并在报告记录实际归档名；禁止覆盖或静默丢弃。
 - 归档保留而非删除：下一轮审计先检索同工件/同范围的归档账本，上一轮裁决、反证、模式范围与未覆盖范围直接作为输入，而不是重跑一遍再比。
 - 归档内容含敏感信息时，按与证据包相同的脱敏纪律处理后再保留。
 

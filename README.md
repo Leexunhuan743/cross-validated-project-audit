@@ -8,7 +8,7 @@
 
 - **交叉验证**：最高风险不变量由两个独立发现过程覆盖；子代理结论只是调查线索，代码追踪、真实运行或对应版本权威契约才是证据。
 
-- **状态落盘与断点恢复**：范围、候选账本、覆盖矩阵与子代理发现产物启动即写入仓库外隔离目录（Markdown 账本，零机器格式维护负担）——盘上即真相；会话中断可续审，结束后归档供跨轮复盘（`references/audit-ledger.md`）。
+- **状态落盘与断点恢复**：范围、候选账本、覆盖矩阵与子代理发现产物启动即写入工作目录 `.audits/`（初始化确保 Git 忽略，默认写 `.git/info/exclude`；Markdown 账本，零机器格式维护负担）——盘上即真相；会话中断可续审，结束后归档供跨轮复盘（`references/audit-ledger.md`）。
 
 - **主代理统一验证调度**：界定范围、记录锚定前判断、复核每个候选问题并裁决（`CONFIRMED` / `NEEDS-DECISION` / `CONDITIONAL` / `REJECTED`），输出门禁（`READY` / `READY-WITH-CONDITIONS` / `BLOCKED` / `INCOMPLETE`）。
 
@@ -16,11 +16,11 @@
 
 - 自动触发：触发与排除范围以 `SKILL.md` frontmatter description 为准。
 
-- 默认只审计、不修改项目；要求修复须显式说明，修复受 `SKILL.md` §6 分批与复核约束。
+- 默认只审计、不修改项目源码（唯一写入：`.audits/` 与忽略规则，默认 `.git/info/exclude`，不产生 git status）；要求修复须显式说明，修复受 `SKILL.md` §6 分批与复核约束。
 
 - 完整流程见 `SKILL.md`；门禁映射与完成清单见 `references/reporting.md`。
 
-- 不用于快速摘要、纯风格检查或普通窄范围问答（`SKILL.md` frontmatter 负向声明）。
+- 不用于快速摘要、纯风格检查或普通窄范围问答（以 `SKILL.md` frontmatter 的触发与排除范围为准）。
 
 ## 安装
 
@@ -41,9 +41,9 @@
 | `references/review-dimensions.md`         | 设计覆盖时      | 4 证据轴、14 实现维、7 计划维 + FACT/JUDGMENT 裁决与计划就绪条件                    |
 | `references/core-failure-patterns.md`     | 建立风险地图时    | 13 条失败模式 + 模式范围方法（含安全反例）                    |
 | `references/behavioral-verification.md`   | 运行时主张      | 公共入口验证、7 步安全执行序、证据四态                  |
-| `references/platform-runtime-patterns.md` | 平台/编码/语言语义 | Windows、Unicode、PowerShell、Rust、第三方差异 |
+| `references/platform-runtime-patterns.md` | 平台/编码/语言语义 | Windows、Unicode、PowerShell、Rust、Node/npm、第三方差异 |
 | `references/fix-verification.md`          | 实施修复时      | 修复映射、动态分批、新代理复核、裁决反馈                  |
-| `references/audit-ledger.md`               | 每次使用（启动即读） | Markdown 账本/矩阵模板、落盘纪律、断点恢复、归档与降级     |
+| `references/audit-ledger.md`               | 每次使用（启动即读） | Markdown 账本/矩阵模板、忽略规则、落盘纪律、断点恢复、归档与降级     |
 | `references/auditor-persona.md`            | 派发子代理前     | 平台中性审计员模板、实例化规则与检查表                    |
 | `references/reporting.md`                 | 输出报告前      | 报告层级、门禁映射、完成清单                        |
 | `agents/openai.yaml`                      | 无需读取       | 惰性元数据；omp 只消费 `SKILL.md` frontmatter  |
