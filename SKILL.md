@@ -25,7 +25,7 @@ description: "多代理交叉审计：对分支/PR/commit/工作区/计划/配�
 2. 阅读需求、规范、计划、项目约束和当前状态，识别并保护用户已有改动。
 3. 对 Git 工件读取 references/git-scoping.md，解析不可变 base/head，区分审查补丁、最终树状态和提交拓扑；派发前 fail-fast：坏 ref、空 diff、错误目录或缺失材料先解释或解决。
 4. 对计划工件建立"关键主张 → 代码、配置、文档或权威来源"的验证表。
-5. 初始化审计状态：读取 references/audit-ledger.md，在工作目录 `.audits/<auditId>/` 创建 `audit.md`、`coverage.md`、`ledger.md` 与 `findings/`，处理 `.audits/` 的 Git 忽略规则（用 `git rev-parse --git-path info/exclude` 取得真实排除文件路径，规则见 references/audit-ledger.md §1），并在 `audit.md` 记录解析后的绝对路径；派发前必须落盘，之后按里程碑增量更新。
+5. 初始化审计状态：读取 references/audit-ledger.md，在工作目录 `.audits/<ownerKey>--<auditId>/` 创建 `audit.md`、`coverage.md`、`ledger.md` 与 `findings/`，处理 `.audits/` 的 Git 忽略规则（用 `git rev-parse --git-path info/exclude` 取得真实排除文件路径，规则见 references/audit-ledger.md §1），并在 `audit.md` 记录解析后的绝对路径；派发前必须落盘，之后按里程碑增量更新。
 6. 缺失信息会实质改变结果时才提问；否则声明假设并继续。
 
 用户要求合并或发布结论时，使用门禁词汇 `READY` / `READY-WITH-CONDITIONS` / `BLOCKED` / `INCOMPLETE`（映射与解除规则见 references/reporting.md）。以下情况暂停并请求决定：多个合理基线会改变结论；检查需要凭据、付费资源、外部写入或生产访问；命令可能破坏数据；工件规模无法在约定范围内可靠覆盖。

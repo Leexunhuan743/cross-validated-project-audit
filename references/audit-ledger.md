@@ -17,7 +17,7 @@
 其余项目文件仍遵守只读契约。
 
 ```text
-<工作目录>/.audits/<auditId>/
+<工作目录>/.audits/<ownerKey>--<auditId>/
 ├── audit.md            # 审计定义、范围、基线、假设、门禁目标
 ├── coverage.md         # 覆盖矩阵（含每单元状态）
 ├── ledger.md           # 候选账本（当前状态表 + 变更记录）
@@ -29,7 +29,7 @@
 ```
 
 - `auditId`：先 `sanitizeKey(审计名)`（只保留字母、数字、`-`、`_`，其余折叠为 `-`；禁止路径分隔符、`..` 与空 id）得到 slug；`auditId = <slug 前 23 字符>-<8 位短摘要>`，空 slug 时使用 `audit-<8 位短摘要>`。`<8 位短摘要>` 的算法固定为：对审计名先做 NFKC 规范化并去除首尾空白，取 UTF-8 字节计算 SHA-256，取小写十六进制摘要的前 8 位（如 `a1b2c3d4`）；同一审计名稳定得到同一摘要；短摘要用于降低规范化名称冲突概率，不保证绝对无碰撞。
-- 主代理在审计开始时解析工作目录的**绝对路径**并记录到 `audit.md` 的 `stateDir`；检查、恢复与归档一律按该绝对路径定位，不得引用环境变量（受限环境可能重定向环境变量，导致真实目录被判缺失）。报告中必须附该路径。
+- 主代理在审计开始时把活动状态目录的解析后绝对路径记录为 `stateDir`；活动审计期间按该路径定位。归档前计算并写入最终 `archiveDir`，归档后恢复与复盘按 `archiveDir` 或 §4 的实例搜索规则定位。报告同时附实际使用的状态/归档路径。
 
 ## 2. 文件模板
 
@@ -38,11 +38,15 @@
 ```markdown
 | 键 | 值 |
 |---|---|
-| id | lep-2026-08 |
+| auditId | lep-2026-08-a1b2c3d4 |
 | name | LEPTON 交叉审计 v1.5 |
-| ownerKey | <平台会话 id 或等价标识；拿不到时写 startedAt 紧凑时间戳（格式见下）> |
-| stateDir | <工作目录绝对路径>\.audits\lep-2026-08（解析后的绝对路径，不写环境变量） |
-| artifact | branch；base: 4943fb2；head: …；path: … |
+| ownerKey | <平台会话 id 或等价标识；拿不到时使用安全兜底值> |
+| stateDir | <解析后的活动状态目录绝对路径> |
+| archiveDir | — |
+| artifact | branch / PR / commit / workspace / plan / config / migration / feature |
+| base | <不可变基线；不适用写 —> |
+| head | <不可变目标；不适用写 —> |
+| scope | <实际审计路径、子系统或计划章节> |
 | mode | audit-only / audit-and-fix / fix-verification |
 | gate | 最终报告前填写：READY / READY-WITH-CONDITIONS / BLOCKED / INCOMPLETE |
 | assumptions | 每行一条 |
@@ -53,7 +57,7 @@
 ```
 
 - `ownerKey` 必须**唯一标识主会话/主代理**：优先取平台会话 id 或等价标识；该 id 用于路径前必须按与 `auditId` 相同的文件名安全规则清洗，禁止路径分隔符及 Windows 非法文件名字符。禁止通用占位符（如 `dsh-session`、`default`、`main`、`unknown`、空串、审计名本身）；确实拿不到时直接写 `startedAt` 的时间戳值，不得写占位符。时间戳值用**紧凑格式** `20260815T215947+08`（无冒号、无空格，保留时区后缀）——冒号在 Windows 文件名中非法，且避免归档键过长。**秒级时间戳仍可能同秒撞键**：兜底值追加至少 4 位随机后缀以降低冲突概率；创建目标目录前必须检查是否已存在，存在则重新生成后缀，直到取得未占用路径。
-- `id`、`ownerKey`、`stateDir` 初始化后不再改动；写错时在报告中披露并按断点恢复重建。
+- `auditId`、`ownerKey`、`stateDir` 初始化后不再改动；`archiveDir` 仅在归档时填写一次。
 
 ### 2.2 `ledger.md`（候选账本）
 
@@ -71,7 +75,7 @@
 
 - `验证方式`：`code-trace` / `runtime-probe` / `contract` / `test-discrimination` / `minimal-probe` / `unknown`（对应 `SKILL.md` §4 的验证步骤与 `behavioral-verification.md` 的验证方式；尚未验证写 `unknown`）。需要保留实证档案（探针输出、契约摘录、判别性测试记录）时，写入 `verification/<账本ID>.md` 并在该列写枚举值 + `（见 verification/<账本ID>.md）`；无需保留时只写枚举值。
 - `裁决`：四种最终裁决值 `CONFIRMED` / `NEEDS-DECISION` / `CONDITIONAL` / `REJECTED`；**新候选可直接写最终裁决值**。`待复核` / `已复核` 是可选中间态，仅在主代理暂缓裁决时使用，不是必经阶梯。最终裁决值确定后修改必须同时在变更记录说明理由。
-- `修复状态`（与 `裁决` 正交，只表示"是否仍待处理/已修复"，不表示问题是否成立）：`OPEN`（默认；待处理或待修复）/`FIX-IN-PROGRESS`（修复实施或验证中）/`FIXED-VERIFIED`（修复已实施并有直接证据确认原候选消失，不再阻断）/`ACCEPTED-RISK`（用户或决策明确接受该风险，不再阻断）；`REJECTED` 裁决的候选无需修复，写 `—`。`NEEDS-DECISION` 裁决后：决定必须修复→`OPEN`，决定接受→`ACCEPTED-RISK`；`CONDITIONAL` 在补齐证据前保持 `OPEN`。门禁仅把 `OPEN` / `FIX-IN-PROGRESS` 视为仍阻断（见 `references/reporting.md` §4）。
+- `修复状态`（与 `裁决` 正交，只表示"是否仍待处理/已修复"，不表示问题是否成立）：`OPEN`（默认；待处理或待修复）/`FIX-IN-PROGRESS`（修复实施或验证中）/`FIXED-VERIFIED`（修复已实施并有直接证据确认原候选消失，不再阻断）/`ACCEPTED-RISK`（用户或决策明确接受该风险，不再阻断）；`REJECTED` 裁决的候选无需修复，写 `—`。`NEEDS-DECISION` 裁决后：决定必须修复→`OPEN`，决定接受→`ACCEPTED-RISK`；`CONDITIONAL` 在补齐证据前保持 `OPEN`。`OPEN` / `FIX-IN-PROGRESS` 表示候选仍待处理；最终映射为 `BLOCKED`、`READY-WITH-CONDITIONS` 或其它门禁结果，按 `references/reporting.md` §4 的严重度、发布相关性与证据完整性规则判断。
 - `发现引用`：对应 findings 条目 id；主代理直接发现的候选同样写入主代理专用 findings 文件（`findings/main.md`，子代理不得写）并在此引用，不允许用 `—` 跳过内容落盘。
 - `模式范围`：`ISOLATED` / `SYSTEMIC` / `UNKNOWN`，仅模式搜索后填写。
 - `反证/备注`：`REJECTED` 必填反证；`CONDITIONAL` 必填缺失条件；`NEEDS-DECISION` 必填选项与影响。
@@ -86,13 +90,14 @@
 | ISO8601 | C1 | 裁决 待复核 → CONFIRMED；复核方式 code-trace |
 ```
 
-修订规则：当前状态以状态表该行内容为准；修订历史只存在于变更记录表（Markdown 账本没有 rev 编号机制）。出现以下任一**修正事件**时，必须更新该行并追加一条变更记录：
+修订规则：当前状态以状态表该行内容为准；变更历史只存在于变更记录表。出现以下任一实质状态变化或修正事件时，必须更新该行并追加一条变更记录：
 
-1. 裁决推翻（如 `REJECTED → CONFIRMED`、`CONFIRMED → REJECTED`）；
-2. 位置 / 严重度 / 归因 / 证据更正（只记在 `主代理修正` 列并附依据，不得把这些内容字段复制进账本其它列；内容真相仍在 findings）；
-3. 模式范围变化（如 `ISOLATED → SYSTEMIC`）。
+1. 裁决变化（如 `REJECTED → CONFIRMED`）；
+2. 修复状态变化（如 `OPEN → FIX-IN-PROGRESS → FIXED-VERIFIED`，或改为 `ACCEPTED-RISK`）；
+3. 位置 / 严重度 / 归因 / 证据更正；
+4. 模式范围变化（如 `ISOLATED → SYSTEMIC`）。
 
-一次成型的候选不产生修订历史；只有修正事件才留下历史链。
+一次成型且状态未发生变化的候选不产生额外修订历史。
 
 ### 2.3 `coverage.md`（覆盖矩阵）
 
@@ -103,8 +108,8 @@
 ```
 
 - `状态` 单向逐级推进：`planned → dispatched → reported → verified`（`dispatched` 后先到 `reported` 才能到 `verified`）；随里程碑同步：派发完成→`dispatched`，子代理发现文件写入/内联报告到达→`reported`，逐条复核定稿→`verified`。无法判定的单元留在当前状态并在报告"残留缺口"披露；`verified` 只在逐条复核定稿后标记。
-- `发现条目` 显式链接本单元产出的 findings id。`verified` 判据：非空时每条都已聚合入 `ledger.md`（`发现引用` 引回）且对应候选全部到达终态；无候选问题（写 `无`）时，仍需主代理直接复核后才可标 `verified`。
-- `核对`：标 `verified` 前，主代理必须逐条写下"发现条目 → 账本行 → 终态裁决"映射；无候选问题时写"主代理直接复核：无候选"。没有 `核对` 记录的 `verified` 视为未完成。
+- `发现条目` 显式链接本单元产出的 findings id。`verified` 判据：非空时每条都已聚合入 `ledger.md`（`发现引用` 引回）且对应候选全部具有最终裁决值；无候选问题（写 `无`）时，仍需主代理直接复核后才可标 `verified`。
+- `核对`：标 `verified` 前，主代理必须逐条写下"发现条目 → 账本行 → 最终裁决值"映射；无候选问题时写"主代理直接复核：无候选"。没有 `核对` 记录的 `verified` 视为未完成。
 - 最高风险不变量必须有至少两个单元覆盖，且都达到 `verified`，才允许使用"未发现已确认缺陷"措辞（`reporting.md` §6）。
 
 ### 2.4 `findings/<axis>-<agent>.md`（子代理发现产物）
@@ -140,11 +145,11 @@
 
 ## 4. 断点恢复
 
-1. 读取 `.audits/<auditId>/` 下的 `audit.md` 与 `coverage.md`，还原工件、基线、假设与矩阵状态。
+1. 读取当前 `.audits/<ownerKey>--<auditId>/`；恢复到新会话时，在 `.audits/` 中匹配 `*--<auditId>`，读取 `audit.md` 的工件、基线和范围后确定正确实例。
 2. 裁决尚未确定的候选继续复核/裁决；在 `audit-and-fix` / `fix-verification` 模式下，同时恢复 `修复状态 ∈ {OPEN, FIX-IN-PROGRESS}` 的候选，并恢复 `fix-map.md` 中尚未达到 `PASSED` 的批次；变更记录用于还原过程与理由。
 3. 以 coverage `发现条目` 与 ledger `发现引用` 的差集为准，把"已报告、未聚合"的条目补聚合进账本。
 4. 在报告"范围与基线"注明"恢复自 `<状态目录路径>`，中断点为 X，恢复后续审 N 项"。
-5. 先在 `.audits/<auditId>/` 找（当前未归档状态），再查 `.audits/archive/` 下匹配 `*--<auditId>` 的目录（归档键为 `<ownerKey>--<auditId>`，见 §5）；命中多个时读取各 `audit.md` 的 base/head/scope 字段判定正确实例，不凭目录名猜测；都没有匹配才视为新审计，并在报告中披露"历史状态未找到，从零开始"。
+5. 先在 `.audits/` 下匹配 `*--<auditId>` 的未归档实例，再查 `.audits/archive/` 下的 `*--<auditId>`；命中多个时读取各自 `audit.md` 的工件、基线和范围判定，不凭目录名猜测。
 
 ## 5. 归档与跨轮复盘
 

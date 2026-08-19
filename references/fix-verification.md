@@ -40,9 +40,10 @@
 
 批间门规则：
 
-- 依赖批次只有全部达到 `PASSED` 后，下游批次才可开始；`PENDING` / `FAILED` 均阻断下游。
-- 只有该批验收条件全部满足，且其中需要修复的候选已达到 `FIXED-VERIFIED`、接受风险的候选已达到 `ACCEPTED-RISK`，才能把批间门标为 `PASSED`；同时记录验收依据。
-- 修复引入的新 Critical/High 在进入下一批前解决，否则当前批保持 `FAILED` 或 `PENDING`。
+- 所有依赖批次达到 `PASSED` 后，下游批次才可开始；`PENDING` / `FAILED` 均阻断下游。
+- `fix-batch-*`：修复实施完成、定向检查通过，且涉及候选已进入 `FIX-IN-PROGRESS` 后即可标为 `PASSED`，并解锁对应验证批次；此时不得要求候选已经 `FIXED-VERIFIED`。
+- `verify-batch-*`：独立复核与主代理验证通过，且需要修复的候选已达到 `FIXED-VERIFIED`、接受风险的候选已达到 `ACCEPTED-RISK` 后，才可标为 `PASSED`。
+- `综合回归`：全部依赖验证批次达到 `PASSED`，最终回归通过且没有未处理的新 Critical/High 后，才可标为 `PASSED`。
 - 违规提前进入下一批视为过程缺陷，必须在完成清单与报告中披露。
 
 ## 3. 确认模式范围

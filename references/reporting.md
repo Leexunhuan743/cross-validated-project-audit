@@ -37,7 +37,7 @@
 
 | 优先级 | 条件 | 门禁结论 |
 |---|---|---|
-| 1（最高） | 存在终态 `CONFIRMED` 且严重度 Critical/High、发布相关、且 `修复状态` 仍处 `OPEN` / `FIX-IN-PROGRESS`（即尚未 `FIXED-VERIFIED` 或 `ACCEPTED-RISK`）的候选 | `BLOCKED` |
+| 1（最高） | 存在 `CONFIRMED` 且严重度 Critical/High、发布相关、且 `修复状态` 仍处 `OPEN` / `FIX-IN-PROGRESS`（即尚未 `FIXED-VERIFIED` 或 `ACCEPTED-RISK`）的候选 | `BLOCKED` |
 | 2 | 关键证据、目标环境或独立覆盖缺失，无法可靠判断是否存在阻断项（含造成关键判断缺口的 `CONDITIONAL` / `NEEDS-DECISION`） | `INCOMPLETE` |
 | 3 | 无 `BLOCKED`、无 `INCOMPLETE`，但存在 `CONFIRMED` Medium/Low 且 `修复状态 ∈ {OPEN, FIX-IN-PROGRESS}`、非关键 `NEEDS-DECISION` / `CONDITIONAL`、非阻断前置条件或其它未完成项 | `READY-WITH-CONDITIONS` |
 | 4（最低） | 不满足以上三项，且最高风险覆盖单元全部 `verified`（含核对映射） | `READY` |
@@ -72,7 +72,7 @@
 
 > 已完成的单代理或部分审查未发现候选问题，但未完成独立交叉验证，不能视为全面无缺陷结论。
 
-两条措辞与账本状态对应：第一条要求覆盖矩阵中最高风险单元全部到达 `verified`（`发现条目` 非空时每条均已聚合入账；写 `无` 的单元须有 `核对` 列的主代理直接复核记录）、账本无未到终态的候选问题；第二条对应存在未 `verified` 单元或未完成独立覆盖，必须同时披露这些单元。
+两条措辞与账本状态对应：第一条要求覆盖矩阵中最高风险单元全部到达 `verified`（`发现条目` 非空时每条均已聚合入账；写 `无` 的单元须有 `核对` 列的主代理直接复核记录）、账本中所有候选均已有最终裁决值；第二条对应存在未 `verified` 单元或未完成独立覆盖，必须同时披露这些单元。
 
 只使用上面两条给定措辞；不声称"绝对安全""没有 bug"或"所有场景均正确"。
 
@@ -87,6 +87,6 @@
 - [ ] 覆盖矩阵状态逐级推进、无跳级；每个 `verified` 单元都有逐条核对映射（`references/audit-ledger.md` §2.3）。
 - [ ] 报告结论性字段已按本文件开头的三步从盘上账本机械摘录，未另造第二套结构化数据。
 - [ ] 归档路径唯一：`ownerKey` 非占位符，目标归档路径无同名覆盖（`references/audit-ledger.md` §2.1、§5）。
-- [ ] 修复模式下，批次依赖图每批都有裁决记录，进入下一批前批间门已核对（`references/fix-verification.md` §2）。
+- [ ] 修复模式下，批次依赖图每批都有批间门状态与验收依据，进入下一批前批间门已核对（`references/fix-verification.md` §2）。
 - [ ] 文档/纯文本类工件的修复已按 `references/fix-verification.md` §8 轻量判据验收（主代理直接复核；Critical/High 仍须独立视角）。
 - [ ] 临时证据包、探针和隔离环境已清理；只读审计没有修改项目源码（`.audits/` 与忽略规则除外，忽略规则用 `git rev-parse --git-path info/exclude` 取得真实路径，兼容 linked worktree）。
