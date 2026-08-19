@@ -4,7 +4,7 @@
 
 报告与账本的一致性由**单一数据源**保证，不靠两套文本互对：输出报告前先做账本收尾提取——
 
-1. 从 `ledger.md` 状态表逐行提取问题表骨架（ID、发现引用 → findings 中的位置/严重度/归因/证据、裁决、模式范围、反证）；
+1. 从 `ledger.md` 状态表逐行提取问题表骨架（ID、发现引用 → findings 中的位置/严重度/归因/证据、裁决、修复状态、模式范围、反证）；
 2. 终态检查：每个候选裁决必须属于四终态；未终态候选逐条列出，并决定是作为条件项还是 `INCOMPLETE`；
 3. 按 §4 门禁推导规则得出门禁结论。
 
@@ -35,21 +35,21 @@
 
 ## 4. 门禁映射
 
-| 条件 | 门禁结论 |
-|---|---|
-| 存在已确认、现实可达且与发布相关的 Critical/High | `BLOCKED` |
-| 关键证据、目标环境或独立覆盖缺失，无法可靠判断是否存在阻断项 | `INCOMPLETE` |
-| 没有已确认阻断项，但发布前仍有明确、可验证的非阻断前置条件 | `READY-WITH-CONDITIONS` |
-| 完成门槛满足，且没有阻断项或未完成条件 | `READY` |
+| 优先级 | 条件 | 门禁结论 |
+|---|---|---|
+| 1（最高） | 存在终态 `CONFIRMED` 且严重度 Critical/High、发布相关、且 `修复状态` 仍处 `OPEN` / `FIX-IN-PROGRESS`（即尚未 `FIXED-VERIFIED` 或 `ACCEPTED-RISK`）的候选 | `BLOCKED` |
+| 2 | 关键证据、目标环境或独立覆盖缺失，无法可靠判断是否存在阻断项（含造成关键判断缺口的 `CONDITIONAL` / `NEEDS-DECISION`） | `INCOMPLETE` |
+| 3 | 无 `BLOCKED`、无 `INCOMPLETE`，但存在未终态候选、非阻断前置条件或未完成项 | `READY-WITH-CONDITIONS` |
+| 4（最低） | 无 `BLOCKED`、无 `INCOMPLETE`，所有候选均为四终态、最高风险覆盖单元全部 `verified`（含核对映射）、无未完成条件 | `READY` |
 
-门禁推导规则（按账本状态机械判断；严重度取 findings，与 `主代理修正` 不一致时以修正为准）：
+门禁推导规则（按账本状态机械判断，**严格按优先级自上而下取首个命中项，不并列**；严重度取 findings，与 `主代理修正` 不一致时以修正为准；`修复状态` 取值见 `references/audit-ledger.md` §2.2）：
 
-- `BLOCKED` ⟺ 存在终态 `CONFIRMED` 且严重度为 Critical/High 的发布相关候选；
-- `INCOMPLETE` ⟺ 关键覆盖、证据或独立交叉缺失，或存在未终态候选导致无法判断是否存在阻断项；
-- `READY-WITH-CONDITIONS` ⟺ 无 BLOCKED 条件，但存在未终态候选、非阻断前置条件或未完成项；
-- `READY` ⟺ 无 BLOCKED 条件，且所有候选均为四终态、最高风险覆盖单元全部 `verified`（含核对映射）、无未完成条件。
+- `BLOCKED` ⟺ 存在终态 `CONFIRMED` 且严重度为 Critical/High 且发布相关 且 `修复状态 ∈ {OPEN, FIX-IN-PROGRESS}`（已 `FIXED-VERIFIED` 或 `ACCEPTED-RISK` 的候选不再阻断）；
+- `INCOMPLETE` ⟺ 关键覆盖、证据或独立交叉缺失，或存在造成关键判断缺口的未终态候选（`CONDITIONAL`/`NEEDS-DECISION` 引发无法判断阻断项）；
+- `READY-WITH-CONDITIONS` ⟺ 无 `BLOCKED` 且无 `INCOMPLETE`，但存在未终态候选（非关键缺口）、非阻断前置条件或未完成项；
+- `READY` ⟺ 无 `BLOCKED`、无 `INCOMPLETE`，且所有候选均为四终态、最高风险覆盖单元全部 `verified`（含核对映射）、无未完成条件。
 
-`CONDITIONAL`、`NEEDS-DECISION` 是候选裁决，不直接等于门禁；按它们是否造成关键判断缺口映射到 `INCOMPLETE` 或 `READY-WITH-CONDITIONS`，不得覆盖已确认的阻断缺陷。
+优先级 `BLOCKED > INCOMPLETE > READY-WITH-CONDITIONS > READY`：`INCOMPLETE` 优先于 `READY-WITH-CONDITIONS`——只要关键证据/独立覆盖缺失到无法可靠判断是否有阻断项，就不得给出"带条件可发布"的暗示。`CONDITIONAL`、`NEEDS-DECISION` 是候选裁决，不直接等于门禁；按是否造成关键判断缺口映射到 `INCOMPLETE` 或 `READY-WITH-CONDITIONS`，不得覆盖已确认的阻断缺陷。
 
 ## 5. 阻断与解除条件
 
@@ -83,10 +83,10 @@
 - [ ] 已确认候选问题有触发条件、证据、模式范围、修复建议和通过条件。
 - [ ] 每个阻断项都有解除动作；无证据的推断没有升级为阻断。
 - [ ] 运行时或平台主张有真实公共路径或对应版本契约，或保留 `CONDITIONAL`。
-- [ ] 审计状态已按 `references/audit-ledger.md` 落盘并可恢复：账本、覆盖矩阵、发现产物与最终报告一致；报告已附状态目录/归档路径；忽略规则写入与无法写盘的降级已披露。
+- [ ] 审计状态已按 `references/audit-ledger.md` 落盘并可恢复：账本、覆盖矩阵、发现产物与最终报告一致；报告已附状态目录/归档路径；忽略规则处理与无法写盘的降级已披露。
 - [ ] 覆盖矩阵状态逐级推进、无跳级；每个 `verified` 单元都有逐条核对映射（`references/audit-ledger.md` §2.3）。
 - [ ] 报告结论性字段已按本文件开头的三步从盘上账本机械摘录，未另造第二套结构化数据。
 - [ ] 归档键两段唯一：`ownerKey` 非占位符，目标归档路径无同名覆盖（`references/audit-ledger.md` §2.1、§5）。
 - [ ] 修复模式下，批次依赖图每批都有裁决记录，进入下一批前批间门已核对（`references/fix-verification.md` §2）。
 - [ ] 文档/纯文本类工件的修复已按 `references/fix-verification.md` §8 轻量判据验收（主代理直接复核；Critical/High 仍须独立视角）。
-- [ ] 临时证据包、探针和隔离环境已清理；只读审计没有修改项目源码（`.audits/` 与忽略规则除外，默认写 `.git/info/exclude`）。
+- [ ] 临时证据包、探针和隔离环境已清理；只读审计没有修改项目源码（`.audits/` 与忽略规则除外，忽略规则用 `git rev-parse --git-path info/exclude` 取得真实路径，兼容 linked worktree）。

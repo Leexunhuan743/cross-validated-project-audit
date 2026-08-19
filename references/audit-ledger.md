@@ -9,7 +9,7 @@
 审计状态写在**工作目录**下的 `.audits/`。初始化时主代理按顺序处理忽略规则：
 
 1. 工作目录是 Git 仓库：运行 `git check-ignore .audits/`——已被忽略则什么都不写；
-2. 未忽略时，把 `.audits/` 追加进 `.git/info/exclude`（Git 本地排除文件，不产生 `git status`/diff，不属于交付内容）；`.git/info/exclude` 不可写但 `.audits/` 可写：披露并继续（`.audits/` 会出现在 `git status`，不得提交其中内容）；
+2. 未忽略时，运行 `git rev-parse --git-path info/exclude` 取得真实排除文件路径（linked worktree 中 `.git` 可能是文件而非目录，不能假设 `.git/info/exclude` 可直接写），把 `.audits/` 追加进该路径（Git 本地排除文件，不产生 `git status`/diff，不属于交付内容）；该路径不可写但 `.audits/` 可写：披露并继续（`.audits/` 会出现在 `git status`，不得提交其中内容）；
 3. 用户明确要求忽略规则随仓库提交时，才写项目 `.gitignore`，并在报告中披露这行项目修改；
 4. 工作目录不是 Git 仓库：直接使用 `.audits/`，无需忽略规则；
 5. `.audits/` 不可写时改用会话内账本（用同样的 Markdown 表格在对话中维护）并披露。
@@ -28,7 +28,7 @@
 └── probes/             # 主代理批准的隔离探针（结束时清理）
 ```
 
-- `auditId = sanitizeKey(审计名)`：只保留字母、数字、`-`、`_`，其余折叠为 `-`；纯符号名直接用 `audit-<8 位短摘要>`；结果超过 32 字符时取前 24 字符 + `-` + 8 位短摘要；禁止路径分隔符、`..` 与空 id。
+- `auditId = sanitizeKey(审计名)`：只保留字母、数字、`-`、`_`，其余折叠为 `-`；纯符号名直接用 `audit-<8 位短摘要>`；结果超过 32 字符时取前 24 字符 + `-` + 8 位短摘要；禁止路径分隔符、`..` 与空 id。`<8 位短摘要>` 的算法固定为：对审计名先做 NFKC 规范化并去除首尾空白，取 UTF-8 字节计算 SHA-256，取小写十六进制摘要的前 8 位（如 `a1b2c3d4`）；同一审计名稳定得到同一摘要，且不与其它规范化结果撞 id。
 - 主代理在审计开始时解析工作目录的**绝对路径**并记录到 `audit.md` 的 `stateDir`；检查、恢复与归档一律按该绝对路径定位，不得引用环境变量（受限环境可能重定向环境变量，导致真实目录被判缺失）。报告中必须附该路径。
 
 ## 2. 文件模板
@@ -52,29 +52,31 @@
 | startedAt / updatedAt | ISO8601 |
 ```
 
-- `ownerKey` 必须**唯一标识主会话/主代理**：优先取平台会话 id 或等价标识；禁止通用占位符（如 `dsh-session`、`default`、`main`、`unknown`、空串、审计名本身）；确实拿不到时直接写 `startedAt` 的时间戳值，不得写占位符。时间戳值用**紧凑格式** `20260815T215947+08`（无冒号、无空格，保留时区后缀）——冒号在 Windows 文件名中非法，且避免归档键过长。
+- `ownerKey` 必须**唯一标识主会话/主代理**：优先取平台会话 id 或等价标识；禁止通用占位符（如 `dsh-session`、`default`、`main`、`unknown`、空串、审计名本身）；确实拿不到时直接写 `startedAt` 的时间戳值，不得写占位符。时间戳值用**紧凑格式** `20260815T215947+08`（无冒号、无空格，保留时区后缀）——冒号在 Windows 文件名中非法，且避免归档键过长。**秒级时间戳仍可能同秒撞键**：兜底值必须追加 4 位随机后缀（base36，大小写不敏感）保证唯一，例如 `20260815T215947+08-9f3k`；更高精度（毫秒/微秒）与时间戳组合更佳，但随机后缀是必备兜底。
 - `id`、`ownerKey`、`stateDir` 初始化后不再改动；写错时在报告中披露并按断点恢复重建。
 
 ### 2.2 `ledger.md`（候选账本）
 
-账本只存主代理的**裁决状态**，不复制 findings 的内容字段：位置、严重度、归因、证据（DIRECT/INFERRED）以 findings 为唯一真相，账本用 `发现引用` 指回。
+账本只存主代理的**裁决状态与修复状态**（两套正交：问题是否成立 vs 是否仍待处理/已修复），不复制 findings 的内容字段：位置、严重度、归因、证据（DIRECT/INFERRED）以 findings 为唯一真相，账本用 `发现引用` 指回。
 
 当前状态表（每候选一行，原地编辑该行）：
 
 ```markdown
-| ID | 证据轴 | 来源 | 发现引用 | 验证方式 | 裁决 | 模式范围 | 反证/备注 | 主代理修正 |
+| ID | 证据轴 | 来源 | 发现引用 | 验证方式 | 裁决 | 修复状态 | 模式范围 | 反证/备注 | 主代理修正 |
 |---|---|---|---|---|---|---|---|---|---|
-| C1 | engineering | SA-fix | SA-fix-3 | code-trace | CONFIRMED | ISOLATED | — | 严重度 High/P1 → Medium/P2（依据：…） |
+| C1 | engineering | SA-fix | SA-fix-3 | code-trace | CONFIRMED | OPEN | ISOLATED | — | 严重度 High/P1 → Medium/P2（依据：…） |
 ```
 
 列取值：
 
 - `验证方式`：`code-trace` / `runtime-probe` / `contract` / `test-discrimination` / `minimal-probe` / `unknown`（对应 `SKILL.md` §4 的验证步骤与 `behavioral-verification.md` 的验证方式；尚未验证写 `unknown`）。需要保留实证档案（探针输出、契约摘录、判别性测试记录）时，写入 `verification/<账本ID>.md` 并在该列写枚举值 + `（见 verification/<账本ID>.md）`；无需保留时只写枚举值。
 - `裁决`：四终态 `CONFIRMED` / `NEEDS-DECISION` / `CONDITIONAL` / `REJECTED`；**新候选可直接写终态**。`待复核` / `已复核` 是可选中间态，仅在主代理暂缓裁决时使用，不是必经阶梯。终态后修改必须同时在变更记录说明理由。
+- `修复状态`（与 `裁决` 正交，只表示"是否仍待处理/已修复"，不表示问题是否成立）：`OPEN`（默认；待处理或待修复）/`FIX-IN-PROGRESS`（修复实施或验证中）/`FIXED-VERIFIED`（修复已实施并有直接证据确认原候选消失，不再阻断）/`ACCEPTED-RISK`（用户或决策明确接受该风险，不再阻断）；`REJECTED` 裁决的候选无需修复，写 `—`。`NEEDS-DECISION` 裁决后：决定必须修复→`OPEN`，决定接受→`ACCEPTED-RISK`；`CONDITIONAL` 在补齐证据前保持 `OPEN`。门禁仅把 `OPEN` / `FIX-IN-PROGRESS` 视为仍阻断（见 `references/reporting.md` §4）。
 - `发现引用`：对应 findings 条目 id；主代理直接发现的候选同样写入主代理专用 findings 文件（`findings/main.md`，子代理不得写）并在此引用，不允许用 `—` 跳过内容落盘。
 - `模式范围`：`ISOLATED` / `SYSTEMIC` / `UNKNOWN`，仅模式搜索后填写。
 - `反证/备注`：`REJECTED` 必填反证；`CONDITIONAL` 必填缺失条件；`NEEDS-DECISION` 必填选项与影响。
 - `主代理修正`：只记录与 findings 不一致的裁决输出（位置/严重度/归因/证据/验证结论等），并附依据；一致写 `—`。账本其余列不得出现与 findings 不一致的内容。
+- **聚合对照**：每条候选入账时，仅对账本**实际存储**的字段与 findings 逐条核对——`发现引用` 是否指向正确的 findings 条目；`证据轴`/`来源`/`验证方式`/`裁决`/`修复状态`/`模式范围`/`反证/备注` 是否与主代理裁决一致；`主代理修正` 非空时是否与 findings 的 位置/严重度/归因/证据 形成明确且附依据的偏差记录。位置、严重度、归因、描述、原始证据等**内容字段以 findings 为唯一真相，不得在账本中复制**；账本只在 `主代理修正` 列记录与 findings 的偏差（且不得与 findings 之外的其它列冲突）。不一致立即修正并记变更记录，Low 项同样执行。
 
 变更记录表（只追加、不删旧行）：
 
@@ -87,7 +89,7 @@
 修订规则：当前状态以状态表该行内容为准；修订历史只存在于变更记录表（Markdown 账本没有 rev 编号机制）。出现以下任一**修正事件**时，必须更新该行并追加一条变更记录：
 
 1. 裁决推翻（如 `REJECTED → CONFIRMED`、`CONFIRMED → REJECTED`）；
-2. 位置 / 严重度 / 归因 / 证据更正；
+2. 位置 / 严重度 / 归因 / 证据更正（只记在 `主代理修正` 列并附依据，不得把这些内容字段复制进账本其它列；内容真相仍在 findings）；
 3. 模式范围变化（如 `ISOLATED → SYSTEMIC`）。
 
 一次成型的候选不产生修订历史；只有修正事件才留下历史链。
@@ -96,7 +98,7 @@
 
 ```markdown
 | 单元 | 代理 | 证据轴 | 主责维度 | 路径/子系统 | 重叠不变量 | 发现条目 | 证据方式 | 状态 | 核对 |
-|---|---|---|---|---|---|---|---|---|---|---|
+|---|---|---|---|---|---|---|---|---|---|
 | SA-fix\|engineering\|正确性\|vendor/lepton_jpeg | SA-fix | engineering | 正确性与不变量 | vendor/lepton_jpeg | get_block 下溢 | SA-fix-3, SB-7 | code-trace | verified | SA-fix-3→C1 CONFIRMED；SB-7→C2 REJECTED |
 ```
 
@@ -142,7 +144,7 @@
 2. 按 `ledger.md` 状态表中未到终态的行逐条继续复核/裁决；变更记录用于还原过程与理由。
 3. 以 coverage `发现条目` 与 ledger `发现引用` 的差集为准，把"已报告、未聚合"的条目补聚合进账本。
 4. 在报告"范围与基线"注明"恢复自 `<状态目录路径>`，中断点为 X，恢复后续审 N 项"。
-5. 先在 `.audits/<auditId>/` 找，再查 `.audits/archive/` 下同名目录；都没有才视为新审计，并在报告中披露"历史状态未找到，从零开始"。
+5. 先在 `.audits/<auditId>/` 找（当前未归档状态），再查 `.audits/archive/` 下匹配 `*--<auditId>` 的目录（归档键为 `<ownerKey>--<auditId>`，见 §5）；命中多个时读取各 `audit.md` 的 base/head/scope 字段判定正确实例，不凭目录名猜测；都没有匹配才视为新审计，并在报告中披露"历史状态未找到，从零开始"。
 
 ## 5. 归档与跨轮复盘
 

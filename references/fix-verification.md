@@ -57,7 +57,7 @@
 
 ## 4. 实施与主代理验证
 
-1. 实施最小且根因级的修复，保护用户已有改动。
+1. 实施前先 `git status --short` 与 `git diff --stat` 记录既有改动，区分用户改动与本次修复；混杂文件声明提交边界，不把无关改动带进修复。实施最小且根因级的修复，保护用户已有改动。
 2. 运行定向检查，再运行与风险相称的回归检查。
 3. 判别力验证优先在 PRE-fix 版本运行；需恢复旧 guard、做变异或注入失败时，只能在仓库外副本、临时 worktree 或其他可丢弃环境中进行。
 4. 对运行时、用户路径、平台、并发和第三方语义调用真实公共路径；无法实证时保留 `CONDITIONAL`。
@@ -90,9 +90,11 @@
 
 `CONFIRMED-FLAW` / `REJECTED-CLAIM` / `MISSED-INSTANCE` / `NEW-REGRESSION` 是批内反馈，不写入账本裁决列；只有最终裁决、修正事件或新回归候选才按 `references/audit-ledger.md` §2.2 入账。
 
+原候选问题经修复并验证消失后，把 `references/audit-ledger.md` §2.2 账本中该候选的 `修复状态` 由 `OPEN` / `FIX-IN-PROGRESS` 改为 `FIXED-VERIFIED`；若决定接受该风险，改为 `ACCEPTED-RISK`——`修复状态` 与 `裁决`（问题是否成立）正交：`CONFIRMED` 只表示"问题曾确认成立"，不表示"已修复"，门禁据此解除 `BLOCKED` 与否以 `修复状态` 为准（见 `references/reporting.md` §4）。
+
 ## 7. 收尾门槛
 
-1. 每个原候选问题都有最终裁决、修复位置、验收证据和模式范围结论。
+1. 每个原候选问题都有最终裁决、修复位置、验收证据、模式范围结论与 `修复状态`（已修复→`FIXED-VERIFIED`，接受风险→`ACCEPTED-RISK`）。
 2. 已确认同类实例全部处理或明确排除；未覆盖范围单独披露。
 3. Critical/High 修复获得新独立视角和主代理直接复核。
 4. 只有项目策略、计划或用户要求时才更新 CHANGELOG、生成物或发布说明。
