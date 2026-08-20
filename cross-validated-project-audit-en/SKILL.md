@@ -1,5 +1,5 @@
 ---
-name: cross-validated-project-audit
+name: cross-validated-project-audit-en
 description: "Risk-driven multi-agent cross-validation audit for whole projects, bounded changes, PRs, author-scoped commits, security reviews, and fix verification. Establish a task contract and shared fact map first, then dispatch heterogeneous read-only investigations using Risk → verification method → executor. Strictly separate Hypothesis, Evidence, Finding, and Decision, and produce traceable gate or audit conclusions under explicit stop conditions. Use for release/merge readiness, security audits, author-commit audits, or fix verification. Do not use for quick summaries, pure style review, or ordinary narrow Q&A that does not require cross-validation."
 ---
 
