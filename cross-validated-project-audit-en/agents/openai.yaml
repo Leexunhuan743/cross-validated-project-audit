@@ -1,7 +1,7 @@
 interface:
   display_name: Cross-Validated Multi-Agent Audit
   short_description: "Risk-driven heterogeneous audit: H→E→F→Decision, Provenance, Severity/Confidence, decision-first reporting"
-  default_prompt: "Use $cross-validated-project-audit to establish the task contract, project map, and risk map first, then dispatch heterogeneous read-only investigations using Risk → verification method → executor. Actively disconfirm material Hypotheses, strictly separate H/E/F/Decision, Provenance, Severity/Confidence, and Evidence Strength, then deliver an Executive decision report followed by a traceable appendix and converge under explicit stop conditions."
+  default_prompt: "Use $cross-validated-project-audit-en to establish the task contract, project map, and risk map first, then dispatch heterogeneous read-only investigations using Risk → verification method → executor. Actively disconfirm material Hypotheses, strictly separate H/E/F/Decision, Provenance, Severity/Confidence, and Evidence Strength, then deliver an Executive decision report followed by a traceable appendix and converge under explicit stop conditions."
   icon_small: assets/icon.svg
   icon_large: assets/icon.svg
 policy:

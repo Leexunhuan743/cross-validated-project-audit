@@ -1,4 +1,4 @@
-# cross-validated-project-audit
+# cross-validated-project-audit-en
 
 A general project-audit Skill that first normalizes a request into a simple task contract, then builds a shared fact map and risk map, chooses heterogeneous investigation paths using “Risk → verification method → executor,” and strictly separates `Hypothesis → Evidence → Finding → Decision`, with the main agent making the final decisions. Supports whole-project audits, bounded change audits, PR audits, author-scoped commit audits, security audits, and fix verification; can produce release/merge gates or other requested audit deliverables.
 
@@ -71,7 +71,7 @@ The default report is decision-first: **Executive report → Audit appendix**. T
 
 ## Installation
 
-- Place this repository in the agent’s skills directory, keeping the folder name `cross-validated-project-audit`, e.g. `~/.omp/agent/skills/cross-validated-project-audit/`.
+- Place this repository in the agent’s skills directory, keeping the folder name `cross-validated-project-audit-en`, e.g. `~/.omp/agent/skills/cross-validated-project-audit-en/`.
 - `SKILL.md` must be at the directory root. Keep `references/`, `agents/`, and `assets/` with it; they are loaded on demand via relative paths.
 - `agents/openai.yaml` is lazy metadata (omp consumes only `SKILL.md` frontmatter and does not read this file), so no changes are required. `assets/icon.svg` is the Skill icon.
 - No explicit invocation is required: the Skill loads automatically when the description trigger matches.
