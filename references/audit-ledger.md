@@ -1,171 +1,262 @@
 # 审计账本与断点恢复
 
-审计主代理在**派发任何子代理之前**读取本文件并初始化审计状态；之后在自然里程碑落盘（派发完成、发现到达、复核定稿、模式范围定稿、门禁输出）。目标：会话中断后无需重跑任何子代理即可续审；跨轮审计可查询上一轮裁决与反证。盘上即真相——子代理的"完成"声明、返回文本的长度与顺序都不是权威。
+审计主代理在**派发任何子代理之前**读取本文件并初始化审计状态；之后在自然里程碑更新状态（事实地图完成、风险单元派发、调查结果到达、Finding 定稿、Decision 定稿、模式范围定稿、门禁输出）。优先持久化到 `.audits/`；若环境不可写，则使用同构的会话内 Markdown 状态作为本次运行的**权威审计状态**并披露可恢复性降低。目标：能持久化时，会话中断后无需重跑已经完成的调查即可续审；跨轮审计可查询上一轮事实、Finding、Decision、反证与残留风险。子代理的“完成”声明、返回文本长度与顺序都不是权威。
 
 审计状态一律用 **Markdown 作为唯一作者格式**：人机皆可直接读写，无转义与机器格式维护负担。机器格式（如 JSONL）不在纯 skill 阶段手写；平台具备会话/事件日志读取能力时，由配套插件以确定性 reducer 投影生成。
 
-## 1. 状态目录（工作目录 `.audits/`）
+## 1. 持久化状态目录与会话降级
 
-审计状态写在**工作目录**下的 `.audits/`。初始化时主代理按顺序处理忽略规则：
+持久化可用时，审计状态写在**工作目录**下的 `.audits/`。初始化时主代理按顺序处理忽略规则；若最终判定不可写，则按第 5 步切换到会话内同构状态：
 
 1. 工作目录是 Git 仓库：运行 `git check-ignore .audits/`——已被忽略则什么都不写；
-2. 未忽略时，运行 `git rev-parse --git-path info/exclude` 取得真实排除文件路径（linked worktree 中 `.git` 可能是文件而非目录，不能假设 `.git/info/exclude` 可直接写），把 `.audits/` 追加进该路径（Git 本地排除文件，不产生 `git status`/diff，不属于交付内容）；该路径不可写但 `.audits/` 可写：披露并继续（`.audits/` 会出现在 `git status`，不得提交其中内容）；
-3. 用户明确要求忽略规则随仓库提交时，才写项目 `.gitignore`，并在报告中披露这行项目修改；
+2. 未忽略时，运行 `git rev-parse --git-path info/exclude` 取得真实排除文件路径（linked worktree 中 `.git` 可能是文件而非目录，不能假设 `.git/info/exclude` 可直接写），避免重复后把 `.audits/` 追加进该路径；随后重新运行 `git check-ignore -q .audits/` 确认规则实际生效。仍未忽略时披露，不声称忽略已成功；排除文件不可写但 `.audits/` 可写时披露并继续（不得提交其中内容）；
+3. 用户明确要求忽略规则随仓库提交时，才写项目 `.gitignore`，并在报告中披露该项目修改；
 4. 工作目录不是 Git 仓库：直接使用 `.audits/`，无需忽略规则；
-5. `.audits/` 不可写时改用会话内账本（用同样的 Markdown 表格在对话中维护）并披露。
+5. `.audits/` 不可写时改用会话内账本（沿用本文件同样的 Markdown 结构）并披露。
 
 其余项目文件仍遵守只读契约。
 
 ```text
 <工作目录>/.audits/<ownerKey>--<auditId>/
-├── audit.md            # 审计定义、范围、基线、假设、门禁目标
-├── coverage.md         # 覆盖矩阵（含每单元状态）
-├── ledger.md           # 候选账本（当前状态表 + 变更记录）
-├── fix-map.md          # 可选：修复映射与批次依赖图（fix 模式，见 references/fix-verification.md）
-├── findings/           # 各子代理发现产物
-│   └── <axis>-<agent>.md
-├── verification/       # 可选：主代理实证档案（探针/契约/测试证据），verification/<账本ID>.md
-└── probes/             # 主代理批准的隔离探针（结束时清理）
+├── audit.md             # 任务契约、基线、停止策略与最终 gate
+├── project-map.md       # 共享的最小 DIRECT 事实地图；不含假设、Finding、Decision
+├── coverage.md          # 风险覆盖矩阵（Risk → method → executor）
+├── ledger.md            # Finding → Decision 当前状态表 + 决策变更记录
+├── fix-map.md           # 可选：修复映射与批次依赖图
+├── investigations/     # 独立调查产物：Hypothesis + Evidence
+│   └── <unit>-<agent>.md
+├── findings/            # 主代理规范化后的 Finding；一项一文件
+│   └── F<n>.md
+├── verification/       # 主代理实证档案；verification/F<n>.md
+└── probes/              # 主代理批准的隔离探针（结束时清理）
 ```
 
-- `auditId`：先 `sanitizeKey(审计名)`（只保留字母、数字、`-`、`_`，其余折叠为 `-`；禁止路径分隔符、`..` 与空 id）得到 slug；`auditId = <slug 前 23 字符>-<8 位短摘要>`，空 slug 时使用 `audit-<8 位短摘要>`。`<8 位短摘要>` 的算法固定为：对审计名先做 NFKC 规范化并去除首尾空白，取 UTF-8 字节计算 SHA-256，取小写十六进制摘要的前 8 位（如 `a1b2c3d4`）；同一审计名稳定得到同一摘要；短摘要用于降低规范化名称冲突概率，不保证绝对无碰撞。
-- 主代理在审计开始时把活动状态目录的解析后绝对路径记录为 `stateDir`；活动审计期间按该路径定位。归档前计算并写入最终 `archiveDir`，归档后恢复与复盘按 `archiveDir` 或 §4 的实例搜索规则定位。报告同时附实际使用的状态/归档路径。
+- `auditId`：先把审计名做 NFKC 规范化并去除首尾空白得到 `canonicalName`；`slug = sanitizeKey(canonicalName)`（只保留字母、数字、`-`、`_`，其余折叠为 `-`；禁止路径分隔符、`..` 与空 id），短摘要固定为 `SHA-256(UTF-8(canonicalName))` 的小写十六进制前 8 位。`auditId = <slug 前 23 字符>-<短摘要>`；空 slug 时使用 `audit-<短摘要>`。短摘要用于降低规范化名称冲突概率，不保证绝对无碰撞。
+- 持久化可用时，主代理把活动状态目录的解析后绝对路径记录为 `stateDir` 并按该路径定位；会话内降级时写 `stateDir=session-only`。持久化审计归档前计算并写入最终 `archiveDir`，归档后恢复与复盘按 `archiveDir` 或 §5 的实例搜索规则定位。
 
-## 2. 文件模板
+## 2. 四层语义模型
 
-### 2.1 `audit.md`（审计定义）
+审计中固定区分四层，不允许混用：
+
+1. **Hypothesis（H）**：可证伪的怀疑或缺陷理论，例如“跨窗口同步可能使用错误窗口”。它不是 Finding，也不能直接进入最终报告。
+2. **Evidence（E）**：实际读取、运行或对应版本权威契约得到的直接观察，可支持、反驳或限定 Hypothesis/Finding。**推理不是 Evidence**；推理写在 reasoning 中，并由 Evidence 引用支撑。
+3. **Finding（F）**：主代理把一个或多个 Hypothesis 规范化后形成的、可独立裁决的具体问题陈述，必须包含现实影响路径、触发条件/适用条件和 Evidence 引用。Finding 尚不等于“问题已确认”。
+4. **Decision**：主代理对 Finding 的最终裁决：`CONFIRMED` / `NEEDS-DECISION` / `CONDITIONAL` / `REJECTED`，并附独立的 Severity、Confidence 与处置状态。Finding 自身按统一评估词汇记录 Provenance（归因不适用时为 `—`），用于区分变更风险与现存风险；Provenance 不等于责任归属，也不参与 Severity/Confidence 计算。Finding 的风险阻断/条件由 Decision 驱动；coverage、Evidence 或 material Hypothesis 的关键完整性缺口可独立映射为 `INCOMPLETE`。
+
+关系不是“所有 H 都必须变成 F”：Hypothesis 可以被 Evidence 直接反驳而关闭；证据不足的 material Hypothesis 可以保留为 residual gap。**material Hypothesis** 指“若为真可能形成 Medium+ Finding、改变 gate/Decision/Severity、使 Confidence 跨越 Decision 所需阈值、揭示系统性模式或新增 highest/high 风险”的假设；纯风格或无实际影响猜测不算 material。只有值得主代理裁决的问题才提升为 Finding。
+
+## 3. 文件模板
+
+### 3.1 `audit.md`（任务与停止状态）
 
 ```markdown
 | 键 | 值 |
 |---|---|
 | auditId | lep-2026-08-a1b2c3d4 |
 | name | LEPTON 交叉审计 v1.5 |
-| ownerKey | <平台会话 id 或等价标识；拿不到时使用安全兜底值> |
-| stateDir | <解析后的活动状态目录绝对路径> |
+| ownerKey | <平台会话 id 或安全兜底值> |
+| stateDir | <解析后的活动状态目录绝对路径> / session-only |
 | archiveDir | — |
-| artifact | branch / PR / commit / workspace / plan / config / migration / feature |
+| target | <仓库/分支/commit/PR/工作区/计划/配置/迁移/功能/修复工件> |
+| scopeMode | project / change / pr / author-commits |
+| objectiveProfile | general / security / fix-verification / security,fix-verification |
+| executionMode | audit-only / audit-and-fix |
+| scope | <实际纳入的审计路径、子系统、提交范围或计划章节；排除项只写 `excluded`> |
+| objectives | <本次审计必须回答的问题> |
+| riskTolerance | standard / <已归一为可判定条件的策略> |
+| availableEvidence | <仓库、diff、PR 元数据、需求、CI、日志、目标环境、权威契约等的可用性；不记录秘密> |
+| deliverable | <门禁报告/问题报告/追溯报告/修复验证报告/用户指定输出> |
 | base | <不可变基线；不适用写 —> |
 | head | <不可变目标；不适用写 —> |
-| scope | <实际审计路径、子系统或计划章节> |
-| mode | audit-only / audit-and-fix / fix-verification |
-| gate | 最终报告前填写：READY / READY-WITH-CONDITIONS / BLOCKED / INCOMPLETE |
+| stopPolicy | standard / exhaustive / user-defined |
+| noMaterialDeltaRounds | 0 |
+| stopReason | — |
+| gate | READY / READY-WITH-CONDITIONS / BLOCKED / INCOMPLETE / —（不要求门禁） |
 | assumptions | 每行一条 |
-| excluded | 每行一条（明确排除的范围与理由） |
-| knownFacts | 每行一条（已确认事实与既有失败） |
-| openClaims | 每行一条（待验证主张 / 未知项） |
+| excluded | 每行一条（范围与理由） |
+| residualRisks | 每行一条（结束时仍存在的残留风险/证据缺口） |
 | startedAt / updatedAt | ISO8601 |
 ```
 
-- `ownerKey` 必须**唯一标识主会话/主代理**：优先取平台会话 id 或等价标识；该 id 用于路径前必须按与 `auditId` 相同的文件名安全规则清洗，禁止路径分隔符及 Windows 非法文件名字符。禁止通用占位符（如 `dsh-session`、`default`、`main`、`unknown`、空串、审计名本身）；确实拿不到时直接写 `startedAt` 的时间戳值，不得写占位符。时间戳值用**紧凑格式** `20260815T215947+08`（无冒号、无空格，保留时区后缀）——冒号在 Windows 文件名中非法，且避免归档键过长。**秒级时间戳仍可能同秒撞键**：兜底值追加至少 4 位随机后缀以降低冲突概率；创建目标目录前必须检查是否已存在，存在则重新生成后缀，直到取得未占用路径。
-- `auditId`、`ownerKey`、`stateDir` 初始化后不再改动；`archiveDir` 仅在归档时填写一次。
+- `ownerKey` 必须唯一标识主会话/主代理：优先取平台会话 id 或等价标识；用于路径前按文件名安全规则清洗，禁止路径分隔符及 Windows 非法字符。禁止 `default`、`main`、`unknown`、空串或审计名本身等占位符。确实拿不到时使用紧凑 `startedAt`（如 `20260815T215947+08`）+ 至少 4 位随机后缀；创建目录前检查是否占用，冲突则重新生成。
+- `auditId`、`ownerKey`、`stateDir` 初始化后不再改动；`archiveDir` 仅归档时填写。六项任务契约与派生字段在派发前必须有值。
+- `stopPolicy` 是内部字段，不增加用户入口负担：默认 `standard`；用户明确要求逐文件/逐行/穷尽时为 `exhaustive`；用户给出明确调查预算/停止标准时为 `user-defined`。`noMaterialDeltaRounds` 只持久化探索轮的连续无 material delta 计数；何时更新、何时停止扩张由主流程的 stop/completion 规则统一决定，本文件不重复定义阈值。
 
-### 2.2 `ledger.md`（候选账本）
+### 3.2 `project-map.md`（共享事实，隔离判断）
 
-账本只存主代理的**裁决状态与修复状态**（两套正交：问题是否成立 vs 是否仍待处理/已修复），不复制 findings 的内容字段：位置、严重度、归因、证据（DIRECT/INFERRED）以 findings 为唯一真相，账本用 `发现引用` 指回。
-
-当前状态表（每候选一行，原地编辑该行）：
-
-```markdown
-| ID | 证据轴 | 来源 | 发现引用 | 验证方式 | 裁决 | 修复状态 | 模式范围 | 反证/备注 | 主代理修正 |
-|---|---|---|---|---|---|---|---|---|---|
-| C1 | engineering | SA-fix | SA-fix-3 | code-trace | CONFIRMED | OPEN | ISOLATED | — | 严重度 High/P1 → Medium/P2（依据：…） |
-```
-
-列取值：
-
-- `验证方式`：`code-trace` / `runtime-probe` / `contract` / `test-discrimination` / `minimal-probe` / `unknown`（对应 `SKILL.md` §4 的验证步骤与 `behavioral-verification.md` 的验证方式；尚未验证写 `unknown`）。需要保留实证档案（探针输出、契约摘录、判别性测试记录）时，写入 `verification/<账本ID>.md` 并在该列写枚举值 + `（见 verification/<账本ID>.md）`；无需保留时只写枚举值。
-- `裁决`：四种最终裁决值 `CONFIRMED` / `NEEDS-DECISION` / `CONDITIONAL` / `REJECTED`；**新候选可直接写最终裁决值**。`待复核` / `已复核` 是可选中间态，仅在主代理暂缓裁决时使用，不是必经阶梯。最终裁决值确定后修改必须同时在变更记录说明理由。
-- `修复状态`（与 `裁决` 正交，只表示"是否仍待处理/已修复"，不表示问题是否成立）：`OPEN`（默认；待处理或待修复）/`FIX-IN-PROGRESS`（修复实施或验证中）/`FIXED-VERIFIED`（修复已实施并有直接证据确认原候选消失，不再阻断）/`ACCEPTED-RISK`（用户或决策明确接受该风险，不再阻断）；`REJECTED` 裁决的候选无需修复，写 `—`。`NEEDS-DECISION` 裁决后：决定必须修复→`OPEN`，决定接受→`ACCEPTED-RISK`；`CONDITIONAL` 在补齐证据前保持 `OPEN`。`OPEN` / `FIX-IN-PROGRESS` 表示候选仍待处理；最终映射为 `BLOCKED`、`READY-WITH-CONDITIONS` 或其它门禁结果，按 `references/reporting.md` §4 的严重度、发布相关性与证据完整性规则判断。
-- `发现引用`：对应 findings 条目 id；主代理直接发现的候选同样写入主代理专用 findings 文件（`findings/main.md`，子代理不得写）并在此引用，不允许用 `—` 跳过内容落盘。
-- `模式范围`：`ISOLATED` / `SYSTEMIC` / `UNKNOWN`，仅模式搜索后填写。
-- `反证/备注`：`REJECTED` 必填反证；`CONDITIONAL` 必填缺失条件；`NEEDS-DECISION` 必填选项与影响。
-- `主代理修正`：只记录与 findings 不一致的裁决输出（位置/严重度/归因/证据/验证结论等），并附依据；一致写 `—`。账本其余列不得出现与 findings 不一致的内容。
-- **聚合对照**：每条候选入账时，仅对账本**实际存储**的字段与 findings 逐条核对——`发现引用` 是否指向正确的 findings 条目；`证据轴`/`来源`/`验证方式`/`裁决`/`修复状态`/`模式范围`/`反证/备注` 是否与主代理裁决一致；`主代理修正` 非空时是否与 findings 的 位置/严重度/归因/证据 形成明确且附依据的偏差记录。位置、严重度、归因、描述、原始证据等**内容字段以 findings 为唯一真相，不得在账本中复制**；账本只在 `主代理修正` 列记录与 findings 的偏差（且不得与 findings 之外的其它列冲突）。不一致立即修正并记变更记录，Low 项同样执行。
-
-变更记录表（只追加、不删旧行）：
+`project-map.md` 是对 `audit.md` 任务契约的**补充事实层**：target/base/head/scope/excluded 以 `audit.md` 为唯一权威源，本文件不重复保存；这里只记录会被多个风险单元复用的 DIRECT 项目事实，避免每个代理从 README 和仓库根目录重复建立同一背景。禁止写 Hypothesis、Finding、Decision、严重度判断、Risk tolerance、其他调查者结论或“这里可能有 bug”之类暗示。
 
 ```markdown
-| 时间 | 对象 | 变更 |
+# Project map
+
+## Project / subsystem map
+- <subsystem> → <职责/入口/关键依赖>
+
+## Terminology
+- <term> = <项目内实际含义>（source: ...）
+
+## Public entrypoints
+- <CLI/API/UI/SDK/migration/...> → <入口位置>
+
+## Changed / touched areas
+- <path> → <变更/触达事实；全项目审计无明确变更时写 —>
+
+## Shared facts
+| Fact ID | DIRECT fact | Source |
 |---|---|---|
-| ISO8601 | C1 | 裁决 待复核 → CONFIRMED；复核方式 code-trace |
+| P1 | ... | path:line / command / authoritative contract |
+
+## Known baseline failures
+- <已有失败及直接来源>
 ```
 
-修订规则：当前状态以状态表该行内容为准；变更历史只存在于变更记录表。出现以下任一实质状态变化或修正事件时，必须更新该行并追加一条变更记录：
+- 主代理先建立最小 map，再派发；只收集会被多个风险单元重复使用的事实，不为“完整地图”扫描无关文件。`P<n>` 是共享 factual context id；它可以作为 Finding 的上下文引用，但 material Decision 仍应引用至少一个调查/验证 Evidence (`R*-E*` / `F*-E*`)。
+- 子代理只接收与自己风险单元相关的 map 摘要或文件访问权；风险地图本身保存在 `coverage.md`，调查者只看到自己被分配的风险主张，不批量读取其他风险单元的判断。调查者可反驳 `project-map.md` 的补充事实：发现错误时回报 `MAP-CORRECTION` + 直接 Evidence，由主代理统一修正。若被修正事实已作为某 coverage 单元的 material 前提，主代理必须识别受影响单元：进行中的单元补发更正；已完成单元新增最小补充复核单元，在复核完成前旧单元不得单独满足该风险主张的 required coverage。
+- `MAP-CORRECTION` 只用于 `project-map.md` 的补充事实；若调查者发现 `audit.md` 的 target/base/head/scope/excluded 可能错误或冲突，必须作为任务契约/基线冲突返回，由主代理重新解析并在必要时重新规划受影响 coverage，不能静默改 map 规避契约。
+- **共享事实，隔离判断**：可共享 `audit.md` 的 target/base/head/scope/excluded，以及 `project-map.md` 的术语、入口、changed files、DIRECT 项目事实；必须隔离其他人的 Hypothesis、Evidence 解释、Finding、Decision、主代理预期答案。
 
-1. 裁决变化（如 `REJECTED → CONFIRMED`）；
-2. 修复状态变化（如 `OPEN → FIX-IN-PROGRESS → FIXED-VERIFIED`，或改为 `ACCEPTED-RISK`）；
-3. 位置 / 严重度 / 归因 / 证据更正；
-4. 模式范围变化（如 `ISOLATED → SYSTEMIC`）。
+### 3.3 `ledger.md`（Finding → Decision）
 
-一次成型且状态未发生变化的候选不产生额外修订历史。
-
-### 2.3 `coverage.md`（覆盖矩阵）
+ledger 只保存**主代理规范化 Finding 的 Decision 摘要**，不保存调查者原始 Hypothesis/Evidence 文本。Finding 内容与风险评估维度在 `findings/F<n>.md`，调查来源在 `investigations/`，主代理直接验证在 `verification/`。Severity / Confidence / Evidence Strength 使用任务协议已经加载的统一评估词汇。
 
 ```markdown
-| 单元 | 代理 | 证据轴 | 主责维度 | 路径/子系统 | 重叠不变量 | 发现条目 | 证据方式 | 状态 | 核对 |
-|---|---|---|---|---|---|---|---|---|---|
-| SA-fix\|engineering\|正确性\|vendor/lepton_jpeg | SA-fix | engineering | 正确性与不变量 | vendor/lepton_jpeg | get_block 下溢 | SA-fix-3, SB-7 | code-trace | verified | SA-fix-3→C1 CONFIRMED；SB-7→C2 REJECTED |
+| Finding | Decision | Severity | Confidence | 主验证方法 | 处置状态 | 模式范围 | Decision rationale |
+|---|---|---|---|---|---|---|---|
+| F1 | CONFIRMED | High | High | user-path-trace（见 verification/F1.md） | OPEN | ISOLATED | F1-E1(ES3) + R2-E3(ES2) 支持，counter-hypothesis 已反驳 |
 ```
 
-- `状态` 单向逐级推进：`planned → dispatched → reported → verified`（`dispatched` 后先到 `reported` 才能到 `verified`）；随里程碑同步：派发完成→`dispatched`，子代理发现文件写入/内联报告到达→`reported`，逐条复核定稿→`verified`。无法判定的单元留在当前状态并在报告"残留缺口"披露；`verified` 只在逐条复核定稿后标记。
-- `发现条目` 显式链接本单元产出的 findings id。`verified` 判据：非空时每条都已聚合入 `ledger.md`（`发现引用` 引回）且对应候选全部具有最终裁决值；无候选问题（写 `无`）时，仍需主代理直接复核后才可标 `verified`。
-- `核对`：标 `verified` 前，主代理必须逐条写下"发现条目 → 账本行 → 最终裁决值"映射；无候选问题时写"主代理直接复核：无候选"。没有 `核对` 记录的 `verified` 视为未完成。
-- 最高风险不变量必须有至少两个单元覆盖，且都达到 `verified`，才允许使用"未发现已确认缺陷"措辞（`reporting.md` §6）。
+- `Decision`：`CONFIRMED` / `NEEDS-DECISION` / `CONDITIONAL` / `REJECTED`；可暂写 `PENDING`，但任务收口前不得保留 `PENDING`。
+- `Severity`：`Critical` / `High` / `Medium` / `Low` / `—`。按统一评估模型的 Impact / Likelihood / Reachability / Recoverability 映射；**不得使用 Confidence 作为降级理由**。所有非 `REJECTED` Finding 必填 Severity；`REJECTED` 写 `—`，确保 gate 不依赖缺省值猜测。
+- `Confidence`：`Very-High` / `High` / `Medium` / `Low` / `—`，表示 Finding 为真的确定程度，不表示影响大小；所有非 `REJECTED` Finding 必填 Confidence，且 `CONFIRMED` 只能使用 `High` / `Very-High`；`REJECTED` 写 `—`。
+- `主验证方法`：使用任务风险地图中的统一 verification archetype；主代理对决定性 Evidence 的直接复核及新增 Evidence 写入 `verification/F<n>.md`。只有 Decision=`PENDING` 时可暂写 `unknown`；最终 Decision 定稿前必须替换为实际方法。
+- `处置状态`（remediation status）与 Decision 正交，但合法组合固定：`PENDING` / `CONDITIONAL` / `NEEDS-DECISION` 只使用 `OPEN`；`CONFIRMED` 可使用 `OPEN` / `FIX-IN-PROGRESS` / `FIXED-VERIFIED` / `ACCEPTED-RISK`；`REJECTED` 写 `—`。证据补齐或授权决策完成后，先更新 Decision，再进入相应处置状态。
+- `ACCEPTED-RISK` 只能由当前用户明确决定，或由任务开始前已经归一且无歧义覆盖该 Finding 的授权风险策略触发；主代理不得自行“接受”风险。设置时在 Decision 变更/处置记录中保存授权依据。
+- `模式范围`：`ISOLATED` / `SYSTEMIC` / `UNKNOWN`；未做同类搜索时写 `UNKNOWN`。
+- `Decision rationale` 必须引用 Finding/verification 中的 Evidence ID，不写“两个 agent 都认为”等投票理由。
 
-### 2.4 `findings/<axis>-<agent>.md`（子代理发现产物）
-
-每个子代理只写自己这一个文件，按以下顺序组织：
-
-1. **候选问题**：每条一个小节（模板如下）；
-2. **已核验正确的高风险行为**：位置与直接证据，没有写"无"；
-3. **覆盖与缺口**：实际检查了什么、未检查什么；
-4. **缺陷模式与同类搜索建议**：可概括时写模式描述、搜索建议与范围假设；没有写"无"。
+Decision 变更记录只追加：
 
 ```markdown
-## <finding-id> <位置>（<严重度>，置信度 <high/medium/low>，<DIRECT/INFERRED>）
-
-- 归因：<本次引入 / 扩大或激活既有 / 纯既有 / 未知>
-- 原始证据：<实际读取或运行所得>
-- 原因→影响：<…>
-- 触发条件：<…>
-- 建议验证：<…>
+| 时间 | Finding | 变更 |
+|---|---|---|
+| ISO8601 | F1 | Decision PENDING → CONFIRMED；Severity High；Confidence High；依据 F1-E1(ES3)、R2-E3(ES2) |
 ```
 
-- 置信度只用于主代理复核排序，不入 ledger、不进最终报告；报告定稿以裁决与严重度为准。
-- 没有候选问题时写"无候选问题"，并附覆盖与缺口说明。
-- 子代理只写自己的文件，不得读、写账本或其他代理的文件；主代理直接发现写入 `findings/main.md`，与子代理文件隔离；`<finding-id>` 在本次审计内唯一。
+以下变化必须追加记录：Decision、Severity、Confidence、处置状态、模式范围或决定性 Evidence/反证结论发生实质变化；Finding 的 Provenance 变化若影响 gate/归因，也追加记录。纯格式编辑不记录。
 
-## 3. 落盘纪律
+### 3.4 `coverage.md`（风险覆盖矩阵）
 
-- 按自然里程碑批量落盘，不要求每个微步骤写盘，但**每个里程碑必须同步对应状态**：派发完成（`audit.md` + `coverage.md` 初始化、忽略规则已处理，状态→`dispatched`）、子代理报告到达（findings 落盘，状态→`reported`，随后聚合入账）、每候选复核定稿（实证档案写入 `verification/`、`coverage.md` 写 `核对` 映射后标 `verified`）、模式范围定稿、门禁输出（回填 `gate`）。禁止收尾时一次性把 `planned` 补写为 `verified`。
-- 每次写盘后核对盘面与当前结论一致；盘上内容与最终报告不一致视为缺陷。
-- 子代理无法写盘：全文内联返回，主代理代写入对应 findings 文件并注明"主代理代写"；这属于已披露降级，不改变"盘上即真相"的要求。
-- 工作目录不可写：改用会话内账本（用同样的 Markdown 表格在对话中维护）并披露。
-- 凭据、令牌、真实用户数据不回显：脱敏后入账，原文只保留给用户指定的安全位置或直接丢弃。
+```markdown
+| 单元 | 风险面 | 风险主张/不变量 | 失败后果/优先级 | 验证方法 | 执行者 | 证据视角 | 路径/子系统 | 调查文件 | Finding | 状态 | 核对 |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| R1 | boundary-conditions | `get_block` 不得发生下溢 | 错误结果；highest | implementation-trace | SA-fix | engineering | vendor/lepton_jpeg | investigations/R1-SA-fix.md | F1 | verified | R1-H1→F1；R1-H2→refuted(R1-E4) |
+| R2 | boundary-conditions | `get_block` 不得发生下溢 | 错误结果；highest | state-invariant-analysis | SB-check | engineering | vendor/lepton_jpeg | investigations/R2-SB-check.md | F1 | verified | R2-H1→F1 |
+```
 
-## 4. 断点恢复
+- `单元` 使用审计内唯一 id（`R1` / `R2`）。一个单元只表示“一个风险主张 + 一个验证方法 + 一个有界范围”；第二种方法创建第二个单元。
+- `状态` 单向推进：`planned → dispatched → reported → verified`。`reported` 表示调查文件已到达；`verified` 只有在主代理完成该单元的 H/E 核对后才能写。
+- `核对` 必须逐个处理 material Hypothesis：`H→F<n>`、`H→refuted(E...)` 或 `H→residual-gap(...)`。`H→F<n>` 前还必须确认该 H 的 disconfirmation 四项完整；不能因为调查者写“无问题”或只给支持 Evidence 就直接 verified。
+- `Finding` 列列出由该单元促成的 F id；没有写 `—`。同一 F 可以被多个异质单元共同支持。
+- 最高风险不变量至少有两个**不同 archetype**、信息隔离且都 `verified` 的单元，才算异质独立覆盖。
 
-1. 读取当前 `.audits/<ownerKey>--<auditId>/`；恢复到新会话时，在 `.audits/` 中匹配 `*--<auditId>`，读取 `audit.md` 的工件、基线和范围后确定正确实例。
-2. 裁决尚未确定的候选继续复核/裁决；在 `audit-and-fix` / `fix-verification` 模式下，同时恢复 `修复状态 ∈ {OPEN, FIX-IN-PROGRESS}` 的候选，并恢复 `fix-map.md` 中尚未达到 `PASSED` 的批次；变更记录用于还原过程与理由。
-3. 以 coverage `发现条目` 与 ledger `发现引用` 的差集为准，把"已报告、未聚合"的条目补聚合进账本。
-4. 在报告"范围与基线"注明"恢复自 `<状态目录路径>`，中断点为 X，恢复后续审 N 项"。
-5. 先在 `.audits/` 下匹配 `*--<auditId>` 的未归档实例，再查 `.audits/archive/` 下的 `*--<auditId>`；命中多个时读取各自 `audit.md` 的工件、基线和范围判定，不凭目录名猜测。
+### 3.5 `investigations/<unit>-<agent>.md`（Hypothesis + Evidence）
 
-## 5. 归档与跨轮复盘
+调查者只记录 Hypothesis、Evidence、reasoning、已验证正确行为与缺口；**不得创建最终 Finding ID、Decision 或最终严重度**。
 
-- 审计结束：清理 `probes/` 与一切临时探针；随后把状态目录移入 `.audits/archive/<ownerKey>--<auditId>/`，报告附归档路径。
-- 归档路径整体必须唯一；`ownerKey` 区分运行实例，`auditId` 稳定标识审计名称，不要求 `auditId` 本身唯一。
-- 移入前检查目标归档路径；已存在时只在 `ownerKey` 一侧追加消歧值，例如 `<ownerKey>-<startedAt>--<auditId>` 或 `<ownerKey>-2--<auditId>`，不得在 `auditId` 后追加后缀；禁止覆盖或静默丢弃。
-- 归档保留而非删除：下一轮审计先检索同工件/同范围的归档账本，上一轮裁决、反证、模式范围与未覆盖范围直接作为输入，而不是重跑一遍再比。
-- 归档内容含敏感信息时，按与证据包相同的脱敏纪律处理后再保留。
+```markdown
+## R1-H1 Hypothesis
+- Coverage unit：R1
+- 风险面：boundary-conditions
+- 验证方法：implementation-trace
+- 假设：<可证伪的具体陈述>
+- 潜在影响：<若为真，现实上会造成什么；不写最终严重度>
+- 适用/触发条件：<...>
+- Counter-hypothesis：<最强现实安全解释；若成立会使原 H 为假或显著缩窄>
+- Expected safe behavior：<若 counter 为真，应观察到什么 guard/lock/caller constraint/contract/runtime behavior>
+- Evidence searched for disconfirmation：<实际检查范围>
+- Disconfirmation result：counter-supported / counter-refuted / unresolved
+- Evidence refs：R1-E1, R1-E2
+- Investigation result：supported / refuted / unresolved
+- Reasoning：<Evidence → 假设的推理；明确这是推理，不是 Evidence>
+- 建议：promote-to-finding / close / residual-gap
 
-## 6. 降级与披露
+### R1-E1 Evidence
+- Polarity：supports / refutes / context
+- Strength：ES1 / ES2 / ES3 / ES4
+- Reproducibility：repeatable / conditional / single-observation / not-applicable
+- DIRECT source：<实际读取的 path:line、命令结果、目标版本契约等>
+- Observation：<只写观察事实>
+```
 
-- 无法写盘（无文件能力、只读沙箱、平台限制）：继续审计，但改为会话内账本（用同样的 Markdown 表格在对话中维护）；报告"范围与基线"注明"审计状态未持久化"，且 `reporting.md` 完成清单对应项不得打勾。
-- 单代理、窄范围且用户明确要快速结果：可最小化账本（至少 `audit.md` + `ledger.md`），但降级必须披露。
-- 降级不改变其他纪律：子代理只读、DIRECT/INFERRED 标注、证据轴独立照常执行。
+- Evidence 必须是 DIRECT；“根据经验推测”“看起来可能”属于 reasoning/Hypothesis，不得编号成 E。每条 Evidence 使用任务协议统一的 Strength / Reproducibility 词汇评定。
+- 一个 Hypothesis 可引用多个支持和反证 Evidence；**每个准备 `promote-to-finding` 的 material Hypothesis 必须完成 Counter-hypothesis / Expected safe behavior / Evidence searched / Disconfirmation result 四项**。没有实际反证搜索不得直接提升。
+- `Investigation result` 是调查者的局部判断，不是 Decision；主代理可以不同意。
+- 没有 material Hypothesis 时写“无 material hypothesis”，仍列出已检查范围、关键 Evidence/已验证正确行为与缺口。
+- `H`/`E` id 在审计内通过 unit 前缀保持唯一，例如 `R2-H3` / `R2-E7`。
 
-## 7. 账本与会话日志的分工
+### 3.6 `findings/F<n>.md`（主代理规范化 Finding）
 
-- 平台会话/事件日志是**过程事件源**（可重放）：记录过程而非当前状态，会话/审计边界不一致、含未脱敏原文、只读不可写。
-- 账本是**归约后的当前状态**，由主代理按本文件维护；二者职责分离：日志=过程可重放，账本=结果真相。
+只有主代理可以创建/修改 Finding。一个 Finding 可以聚合多个独立 Hypothesis。主代理自己发现问题时也先在 `investigations/<unit>-main.md` 记录 H/E，再提升为 Finding，不绕过四层链。
+
+```markdown
+# F1 <短标题>
+
+- 风险面：<一个主要风险面；必要时附次要风险面>
+- Finding statement：<具体、可裁决的问题陈述>
+- 位置/范围：<path:line / public entrypoint / config / plan section>
+- Provenance：INTRODUCED / EXPOSED / REGRESSED / PRE_EXISTING / UNKNOWN / —（不适用变更归因）
+- 原因→影响：<现实影响链>
+- 触发/适用条件：<...>
+- Source hypotheses：R1-H1, R2-H1
+- Supporting evidence：R1-E1, R2-E3, F1-E1
+- Refuting/limiting evidence：<E ids 或 —>
+- Disconfirmation summary：<counter-hypothesis + searched Evidence + result；引用来源 H/E>
+- Impact：Critical / High / Medium / Low
+- Likelihood：High / Medium / Low
+- Reachability：Common / Conditional / Privileged
+- Recoverability：Irreversible / Manual / Automatic
+- Severity mapping：<按统一评估模型的基线/有限调整规则说明；不以 Confidence 调整>
+- Provenance evidence：<支持 provenance 的 base/head/history/reachability Evidence；不适用写 —>
+- 建议验证/退出条件：<可观察、可测试、可判定>
+```
+
+- Finding 是“可裁决的问题对象”，不是 `CONFIRMED` 的同义词；Provenance 与风险维度/Severity mapping/反证过程保留在 Finding 文件，ledger 只保留最终 Decision / Severity / Confidence，避免把历史归因与风险判断混为一谈。
+- 主代理验证产生的新 Evidence 放 `verification/F<n>.md`，Evidence id 用 `F<n>-E<m>`；每条保持与 investigation Evidence 相同的 `Polarity / Strength / Reproducibility / DIRECT source / Observation` 五字段，Finding 文件引用这些 id。
+- 多个调查者描述同一逻辑问题时只建立一个 Finding，保留所有来源 Hypothesis/Evidence；不同根因或不同现实影响需独立裁决时才拆分。
+
+## 4. 落盘纪律
+
+- 正常模式先写 `audit.md` + `project-map.md` + `coverage.md` 的 planned 风险单元，再派发；显式降级且省略 project-map/coverage 时，先建立降级协议要求的最小状态与 investigation 任务头，再开始调查。
+- 派发后 coverage→`dispatched`；调查文件到达后→`reported`；主代理逐个核对 material Hypothesis，把它们映射到 Finding / refuted / residual gap 后→`verified`。
+- Finding 创建/合并后更新 `findings/F<n>.md`；Decision 定稿后更新 `ledger.md`；主代理实证写 `verification/F<n>.md`。禁止收尾时一次性把 `planned` 补成 `verified`。
+- 每次更新权威审计状态后核对其与当前结论一致；权威状态与最终报告不一致视为缺陷。
+- 子代理无法写持久化状态：全文内联返回，主代理写入当前权威审计状态对应的 investigation 内容并注明“主代理代写”；不改变状态权威性。
+- 凭据、令牌、真实用户数据不回显；只保存满足审计目的所需的脱敏 Evidence。
+
+## 5. 断点恢复
+
+1. 找到正确状态实例后先读取 `audit.md` 与 `ledger.md`；正常模式再读取 `project-map.md` / `coverage.md`，降级模式读取实际存在的状态工件并保留其省略项披露。
+2. 存在 `coverage.md` 时，`reported` 但未 `verified` 的单元读取 investigation 文件，补做 H→F/refuted/gap 核对，不重跑调查者；降级模式无 coverage 时按 `investigations/` → `findings/` → `ledger.md` 继续四层链。
+3. Finding 存在但 Decision=`PENDING`：继续 disconfirmation、风险维度/Confidence 评估、主代理验证与裁决；`verification/` 已有 Evidence 直接复用，不重复采集。
+4. 在 `audit-and-fix` / `fix-verification` 模式下，同时恢复处置状态 `OPEN` / `FIX-IN-PROGRESS` 和 `fix-map.md` 未 `PASSED` 批次。
+5. 恢复 `noMaterialDeltaRounds` 与 residual risks；已完成的 exploration round 不重跑。
+6. **持久化模式**的新会话先在 `.audits/` 匹配 `*--<auditId>`，再查 `.audits/archive/`；命中多个时读取 target、base/head、scope、派生字段、时间确定实例，仍无法唯一判断时请求用户决定。无匹配时明确披露“历史状态未找到”。会话内降级状态不承诺跨会话恢复。
+7. 最终报告注明恢复路径、中断点和恢复后继续处理的单元/Finding 数量。
+
+## 6. 归档与跨轮复盘
+
+- 审计结束：所有模式先清理探针与临时资源；**持久化模式**再把状态目录移入 `.audits/archive/<ownerKey>--<auditId>/`，报告附归档路径。会话内降级模式只披露未持久化与跨会话恢复限制。
+- 归档路径整体必须唯一；冲突时只在 `ownerKey` 一侧追加消歧值（如 `<ownerKey>-<startedAt>--<auditId>`），不得覆盖或静默丢弃。
+- 下一轮同工件/同范围审计先读取历史 `audit.md`、存在的 `project-map`、Finding/Decision、反证、模式范围与 residual risks；**共享已确认事实，重新独立形成新 Hypothesis/判断**，不要机械重跑背景搜集，也不要把旧 Decision 当作新一轮的预期答案。
+- 归档含敏感信息时按证据脱敏纪律处理。
+
+## 7. 降级与披露
+
+- 无法持久化：使用会话内同构状态并披露“审计状态未持久化、跨会话恢复能力降低”。只要 H/E/F/Decision 与当前模式要求的状态仍完整保存在权威会话状态中，该限制本身不否定事实性审计完成；若 Deliverable 明确要求可恢复/持久化证据，则把它作为未满足条件披露。
+- 已符合本 Skill 的审计触发条件，但子代理能力不可用或用户明确要求降级速度时：可以省略完整 `coverage.md` 和不需要复用的 `project-map.md`，但最少仍保留 `audit.md` + `investigations/main.md` + `findings/` + `ledger.md`，保证 H/E/F/Decision 四层可追溯；同时披露缺失的风险覆盖矩阵与异质独立覆盖。普通无需交叉验证的窄问答不应因此触发本 Skill。
+- 降级不改变四层语义与评估模型：Hypothesis 不能冒充 Finding，推理不能冒充 Evidence，Finding 不能冒充 Decision；Confidence 不能冒充 Severity，低 Strength Evidence 不能因数量多冒充高强度证据。
+
+## 8. 账本与会话日志的分工
+
+- 平台会话/事件日志是**过程事件源**（可重放）；可能含未脱敏原文且会话边界不等于审计边界。
+- 本状态结构是**归约后的审计状态**：`project-map`=共享事实，`investigations`=独立 H/E，`findings`=规范化问题对象，`ledger`=Decision，`coverage`=风险覆盖；持久化与会话内模式职责相同，不得混写。

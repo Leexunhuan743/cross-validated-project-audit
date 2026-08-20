@@ -1,12 +1,13 @@
 # Git 工件范围界定
 
-只在审计 Git 分支、PR、commit、工作区或修复批次时读取本文件。分别报告历史拓扑、审查补丁和最终树状态，不用其中一个替代另外两个。
+只在审计 Git 分支、PR、commit、指定作者提交、工作区或 **Git-backed** 修复批次时读取本文件。分别报告历史拓扑、审查补丁和最终树状态，不用其中一个替代另外两个。
 
 ## 目录
 
 - 派发前预检
 - PR 与功能分支
 - 单个 commit、范围与 merge commit
+- 指定作者提交
 - 工作区与多 worktree
 - squash、rebase 与 cherry-pick 等价性
 - 子模块、LFS、生成文件与交付卫生
@@ -89,6 +90,25 @@ git diff <merge>^2 <merge>
 
 对 octopus merge 枚举所有父提交。组合 diff 不等于逐父 diff；冲突解决缺陷常只在组合视图或逐父对照中出现。
 
+## 指定作者提交
+
+`scopeMode=author-commits` 时，先把“作者是谁、在哪个不可变范围内”解析清楚，再审查；默认按 Git **author identity** 归因，不把 committer、reviewer 或 merge 执行者混为作者。
+
+1. 解析并记录不可变 `<base>` / `<head>` 或用户给定的提交范围；未给范围且不同合理范围会改变结论时先询问。
+2. 先枚举范围内提交及 author name/email，再做身份归一；`--author` 是正则匹配，只可作候选过滤，姓名重名、多个邮箱或机器人代提交时必须核对实际 identity，不靠显示名猜测。
+3. 对命中的每个提交读取真实 patch 与父提交关系；同时收集其触达的路径/符号，在目标 `head` 上检查当前实际状态。被后续提交回退、覆盖或重写的内容仍属于历史审计证据，但不得冒充当前树仍存在。
+4. 对每个需要变更归因的 material Finding 收集可直接核对的 base/head、目标提交、历史实现和可达性 Evidence；最终 Provenance 由任务统一评估模型判定，本模块不重复定义归因枚举。
+5. 报告列出作者身份、范围、命中提交集合和排除的歧义 identity；不得把“该作者改过这个文件”直接等同于“文件中的所有问题都由该作者引入”。
+
+安全只读枚举示例：
+
+```bash
+git log --format='%H%x09%an%x09%ae' <base>..<head>
+git show --format=fuller --find-renames <selected-commit>
+```
+
+若审计的是“该作者全部历史提交”，仓库历史过大时先把时间/分支/版本范围写入 `Audit scope`；无法可靠穷尽时明确标为部分审计。
+
 ## 工作区与多 worktree
 
 分别检查：
@@ -151,4 +171,4 @@ git show <base>:<path>
 git blame <head> -- <path>
 ```
 
-`blame` 只定位历史线索，不判断责任。若问题既有但本次变更使其可达、扩大影响或阻碍恢复，分别写清既有根因与增量影响。
+`blame` 只定位历史线索，不判断责任。若问题既有但本次变更使其可达、扩大影响或阻碍恢复，Finding 标为 `EXPOSED` 并分别写清既有根因与增量影响；纯既有且未被目标变更实质改变的标为 `PRE_EXISTING`。

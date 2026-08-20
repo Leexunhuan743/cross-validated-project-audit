@@ -1,38 +1,84 @@
-# 审查维度与独立分工
+# 风险面、验证方法与证据视角
 
-用本表选择有区分度的代理主责。每个代理只承担一个主要证据轴或风险维度，并与另一代理在一个最高风险不变量上重叠。
+覆盖设计的固定顺序是：**Risk → verification method → executor**。先回答“哪些风险必须被覆盖、什么 Evidence 能区分正确与错误”，再决定执行者。代理数量不是覆盖指标；共享 `project-map` 的 DIRECT 事实不会破坏独立性，真正必须隔离的是 Hypothesis、Evidence 的解释、Finding、Decision 和预期答案。
 
-## 证据轴
+## 1. 核心风险面
 
-| 证据轴 | 核心问题 | 适用条件 |
+先从任务契约、变更边界、公共入口、状态/数据边界和失败后果建立风险地图。只选择与当前工件现实相关的风险面，不要求每次机械覆盖全部项目。
+
+| 风险面 | 核心问题 | 典型触发 |
 |---|---|---|
-| 需求忠实度 | 是否遗漏、部分实现、越界实现或违背规范 | 存在 issue、规范、计划或验收标准 |
-| 工程正确性 | 即使满足需求，是否仍有运行时、数据、并发、恢复或兼容缺陷 | 所有非平凡实现 |
-| 真实用户路径 | 真实入口是否产生预期可见行为 | CLI、API、UI、迁移、SDK 或运行时行为 |
-| 交付完整性 | 工件是否能被正确构建、打包、发布、升级和回滚 | PR、分支、发布候选、修复 commit |
+| `correctness` | 输入→处理→输出是否满足核心不变量，错误路径是否产生错误结果 | 所有非平凡实现 |
+| `state-consistency` | 状态转换、顺序、重入、取消、部分完成是否留下矛盾状态 | UI、工作流、会话、队列、缓存、长流程 |
+| `persistence` | schema、事务、幂等、旧数据、迁移、缓存/文件持久化、回滚是否一致 | DB、缓存、文件格式、迁移 |
+| `concurrency` | 竞态、锁序、取消、超时、重试、背压、资源生命周期是否安全 | 多线程、异步、队列、长连接 |
+| `boundary-conditions` | 空值、极限值、错误输入、编码、路径、容量、部分失败等边界是否被正确处理 | 外部输入、解析、文件、批量、跨平台 |
+| `security` | 信任边界、鉴权授权、注入、秘密、隐私、供应链/执行面是否可被现实利用 | 身份、网络、文件、序列化、外部输入 |
+| `compatibility` | API/协议/CLI、旧调用方、版本、平台、第三方真实语义是否兼容 | 公共接口、SDK、协议、跨平台、依赖升级 |
+| `regression` | 旧行为是否被破坏，测试能否区分错误实现，历史缺陷是否回归 | 所有非平凡变更、修复、重构 |
+| `performance-resource` | 复杂度、内存、I/O、缓存、限流、资源上限和退化路径是否可接受 | 热路径、大数据、后台任务、高并发 |
+| `observability-recovery` | 错误传播、脱敏日志、指标、告警、恢复、灾备与重试安全是否足够 | 服务、后台任务、关键流程 |
+| `delivery` | commit set、构建、feature flag、依赖、打包、生成物、exports、升级/回滚、发布说明是否完整 | PR、分支、发布候选、fix commit |
 
-不要让一个代理同时承担所有证据轴。最终按候选问题合并，但保留不同轴的证据来源。
+CLI、UI、迁移、SDK、计划等不是额外的调度主键；它们用于决定哪些风险面被激活。例如 UI 常激活 `state-consistency` / `boundary-conditions` / `compatibility`，数据迁移常激活 `persistence` / `delivery` / `observability-recovery`。
 
-## 实现类风险维度
+## 2. 验证方法 archetype
 
-| 维度 | 重点检查 | 典型适用场景 |
+方法 archetype 表示“如何独立发现或反驳问题”。异质性来自方法和证据来源不同，而不是代理名字不同。
+
+| Archetype | 主要动作 | 最适合证明/反驳 |
 |---|---|---|
-| 正确性与不变量 | 输入到输出、状态转换、边界、错误路径、旧行为差异、不可达假设 | 所有非平凡变更 |
-| 安全与隐私 | 信任边界、鉴权授权、注入、凭据、日志、隐私数据、供应链/执行面 | 外部输入、身份、网络、文件、序列化 |
-| 数据与迁移 | schema、事务、幂等、旧数据兼容、回滚、部分失败、一致性 | 数据库、缓存、文件格式、迁移 |
-| 并发与生命周期 | 竞态、锁序、取消、超时、资源释放、启动关停、重试与背压 | 多线程、异步、队列、长连接 |
-| API 与兼容性 | 请求/响应、错误码、版本、序列化、调用方、公共类型和破坏性变化 | 公共接口、SDK、协议 |
-| CLI 契约 | 参数组合、批量语义、退出码、stdout/stderr、错误文本、入口调用链 | 命令行和自动化接口 |
-| UI 状态机 | 索引/选择、提交 gating、取消/重入、路由、键盘、a11y、i18n | 对话框、表单、导航、桌面/网页 UI |
-| 测试与回归 | 判别力、遗漏分支、生产函数、脆弱 mock、旧缺陷复现、失败分支 | 所有非平凡变更 |
-| 性能与资源 | 复杂度、内存、I/O、缓存、限流、资源上限、退化路径 | 热路径、大数据、后台任务 |
-| 构建与发布 | feature flag、依赖、打包、升级、回滚、release/debug 差异、文档义务 | 发布、CI、部署、依赖升级 |
-| Git 交付完整性 | commit set、杂散/遗漏文件、markers、vendor、lockfile、exports、生成物、gitignore | 分支、PR、fix commit |
-| 互操作与平台 | 外部库真实行为、版本边界、字节/编码、OS/FS 语义、跨进程行为 | 多平台、第三方协议或运行时 |
-| 可观测性与恢复 | 错误传播、脱敏日志、指标、告警、重试安全、恢复/灾备 | 服务、后台任务、关键流程 |
-| 文档与契约 | 实现是否支持 README/API/发布说明/计划主张，是否过度声称 | 用户可见行为和发布说明 |
+| `implementation-trace` | 从真实实现沿调用、数据、错误路径追踪到效果 | 逻辑错误、遗漏 guard、错误调用链、不可达假设 |
+| `user-path-trace` | 从 CLI/API/UI/迁移/SDK 等公共入口逆推真实用户行为 | 可达性、集成错误、公开行为与内部实现脱节 |
+| `state-invariant-analysis` | 明确状态机/不变量，枚举转换、重入、取消、部分失败 | 状态一致性、并发、生命周期、恢复问题 |
+| `test-discrimination` | 判断测试是否会在 PRE-fix/错误实现下失败，必要时隔离变异 | 伪回归保护、脆弱 mock、只测实现细节 |
+| `adversarial-challenge` | 主动构造反例、攻击路径、边界输入和失败注入 | 安全、边界、错误处理、过度自信的 Hypothesis/Finding |
+| `history-regression-analysis` | 检查历史实现、revert、相关 commit、旧缺陷与行为变化 | 回归、归因、兼容性、曾经修过又复发的问题 |
+| `contract-spec-verification` | 对照需求、schema、协议、官方/对应版本契约和公共承诺 | 需求忠实度、API/协议、第三方/平台语义、文档主张 |
 
-## 计划类维度
+方法可产生辅助证据，但**不得静默换方法后仍把结果算作原 archetype 的独立证明**。某方法因环境不可用无法执行时，记录 coverage gap，再选择能回答同一风险主张的替代方法；替代方法必须在矩阵中显式登记。
+
+## 3. 证据视角（辅助，不作为调度主键）
+
+证据视角用于提醒“从哪一类承诺看问题”，可以附加到风险单元，但不决定代理数量。
+
+| 证据视角 | 核心问题 | 适用条件 |
+|---|---|---|
+| `requirements` | 是否遗漏、部分实现、越界实现或违背规范 | 有 issue、规范、计划或验收标准 |
+| `engineering` | 即使满足需求，运行时/状态/数据/恢复是否仍可能错误 | 所有非平凡实现 |
+| `user-behavior` | 真实入口是否产生预期可见行为 | CLI、API、UI、迁移、SDK、runtime |
+| `delivery` | 工件能否正确构建、打包、发布、升级和回滚 | PR、分支、发布候选、修复 commit |
+
+一个风险单元可带一个主要视角；多个不同方法可以共享同一视角。**同一视角不代表同一方法，同一方法也不因换视角就自动变成异质验证。**
+
+## 4. 风险驱动的覆盖选择
+
+1. 从 Audit objectives、变更触达边界、公共入口、状态/数据边界和失败后果列出相关风险面。
+2. 对每个风险面写一个可判定的“风险主张/不变量”和现实失败后果，并给覆盖优先级：`highest`（判断错误可能直接改变门禁或造成重大损害）、`high`（有明确重要影响）、`normal`（其余相关风险）。这是派发优先级，不是 finding 严重度，也不得因 `Risk tolerance` 放宽而降低；没有具体主张的风险面不要为了 checklist 填充。
+3. 为每个高风险主张先选择能**区分真假**的验证 archetype，再分配执行者；执行者是最后一步。
+4. 最高风险不变量至少使用两个**不同 archetype**，且信息隔离；优先让它们来自不同证据源（如实现追踪 + 公共路径、契约 + adversarial challenge）。
+5. 两个调查者可以共享 baseline、scope、术语、公共入口、changed files 等 DIRECT 事实；这不削弱独立性。若共享了前一个人的 Hypothesis/Finding/Decision 或解释性结论，则不能再声称判断独立。两个执行者用同一 archetype、同一证据路径仍只算冗余复核。
+6. 所有准备提升为 Finding 的 material Hypothesis 都先完成任务协议规定的最小 disconfirmation；暂定 Severity 为 Critical/High 的 Finding 在 Decision 定稿前必须尝试第二种异质方法挑战或等价直接反证搜索，完成后才具备 `CONFIRMED` 的方法覆盖前提。确实做不到时记录 coverage gap 并映射门禁，不为凑形式复制代理。
+7. 执行者可以是主代理或子代理；一个执行者可以承担多个低风险单元，一个高风险主张也可以由多个单元/执行者覆盖。**不要把“一个代理 = 一个风险面”写死。**
+8. 不要求每个风险面都使用所有 archetype；选择最少但足以区分关键失败模式的方法集合。
+9. 新探索 round 是否继续由主流程的 `stopPolicy` 决定；本模块只负责识别是否出现新的 material Hypothesis（若成立预计形成 Medium+ Finding）、会改变 Decision/Severity/gate 或使 Confidence 跨越 Decision 所需阈值的 Evidence、系统性模式、新 highest/high 风险或关键冲突，不重复定义停止阈值。
+
+## 5. 常见目标的风险/方法组合
+
+| 场景 | 优先风险面 | 常用异质方法 |
+|---|---|---|
+| 小型后端修复 | correctness、boundary-conditions、regression | implementation-trace + test-discrimination |
+| 安全审计 | security、boundary-conditions、state-consistency | adversarial-challenge + user-path-trace / contract-spec-verification |
+| 鉴权变更 | security、state-consistency、compatibility、regression | adversarial-challenge + state-invariant-analysis + user-path-trace |
+| 数据迁移 | persistence、compatibility、observability-recovery、delivery | state-invariant-analysis + history-regression-analysis + user-path-trace |
+| CLI / UI | state-consistency、boundary-conditions、compatibility、regression | user-path-trace + state-invariant-analysis + test-discrimination |
+| 指定作者提交 | correctness、regression、delivery | implementation-trace + history-regression-analysis；作者身份/范围由 Git scope 模块解析 |
+| 发布候选 | compatibility、regression、delivery、observability-recovery | user-path-trace + contract-spec-verification + history-regression-analysis |
+| 修复验证 | 原 Finding 风险面 + regression | 与原主要调查方法**不同**的 archetype + test-discrimination / user-path-trace |
+
+## 6. 计划类风险维度
+
+计划工件仍按风险主张审查，而不是按“计划 reviewer”分工：
 
 | 维度 | 重点检查 |
 |---|---|
@@ -44,19 +90,10 @@
 | 外部事实 | 对库、协议、平台和历史先例读取原始来源，不用二手摘要替代 |
 | 用户取舍 | 范围、优先级、产品语义和多个合理方案的成本/风险差异 |
 
-裁决前先把候选问题分为 **FACT** 与 **JUDGMENT**：
+主代理把计划类 material Hypothesis 提升为 Finding 前，先区分 **FACT** 与 **JUDGMENT**：
 
 - **FACT**：路径、API 签名、既有 helper、依赖版本、schema、平台限制、历史先例——读代码、配置或官方来源解决；默认只更新审计结论，不修改计划。
-- **JUDGMENT**：范围、优先级、产品语义、多个合理架构的成本风险取舍——整理真实选项与具体影响，裁决为 `NEEDS-DECISION`。
-- 证据不足的外部事实标为 `CONDITIONAL`，不得包装成用户偏好问题。
+- **JUDGMENT**：范围、优先级、产品语义、多个合理架构的成本风险取舍——整理真实选项与具体影响，形成 Finding 后 Decision=`NEEDS-DECISION`。
+- 证据不足的外部事实形成 Finding 时 Decision=`CONDITIONAL`，不得包装成用户偏好问题。
 
 计划只有满足全部条件才可判为就绪：关键需求有任务承载、依赖顺序真实、失败/回滚得到处理、验收可判定、不存在会让实现者做错或无法继续的问题。阻断项不因审查轮数达标而自动降级。
-
-## 常用组合
-
-- 小型后端修复：需求忠实度 + 工程正确性；共同覆盖核心不变量。
-- 鉴权变更：安全 + 会话/状态 + 回归；信任边界至少双重覆盖。
-- 数据迁移：数据完整性 + 回滚/运维 + 调用方兼容；旧数据路径至少双重覆盖。
-- CLI/UI：真实用户路径 + 状态正确性 + 测试；错误、取消和批量路径交叉覆盖。
-- 发布候选：运行时/兼容 + Git 交付 + 文档/发布；阻断项必须有解除条件。
-- 实施计划：事实复用 + 失败回滚 + 验收测试；关键外部主张至少双重核验。
