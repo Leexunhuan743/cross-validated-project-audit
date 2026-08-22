@@ -63,7 +63,7 @@
 1. Git 工作区中实施前先 `git status --short` 与 `git diff --stat` 记录既有改动，区分用户改动与本次修复；混杂文件声明提交边界，不把无关改动带进修复。非 Git 工件按其自身版本/副本机制记录修前状态。实施最小且根因级的修复，保护用户已有改动。
 2. 运行定向检查，再运行与风险相称的回归检查；用于支撑 material 修复结论的测试按当前 test-discrimination 记录填写 `YES/PARTIAL/NO/UNKNOWN`、Basis 与可选 Test issue，generic green 不能替代判别力。
 3. 判别力验证优先在 PRE-fix 版本运行；需恢复旧 guard、做变异或注入失败时，只能在仓库外副本、临时 worktree 或其他可丢弃环境中进行。
-4. 对运行时、用户路径、平台、并发和第三方语义调用真实公共路径并记录新的 DIRECT Evidence。若原 Finding 尚无最终 Decision，主代理据这些 Evidence 作 Decision；若原 Finding 已有最终 Decision 且当前只验证修复效果，则不因“验证暂缺”改写原 Decision，把 Disposition 保持 `REMEDIATING` 并记录 `VERIFICATION-GAP`。
+4. 对运行时、用户路径、平台、并发和第三方语义调用真实公共路径并记录新的 DIRECT Evidence。若原 Finding 尚无最终 Decision，主代理据这些 Evidence 作 Decision；若原 Finding 已有最终 Decision 且当前只验证修复效果，则不因“验证暂缺”改写原 Decision，把 Disposition 保持 `REMEDIATING` 并记录 `VERIFICATION-GAP`（保持 `REMEDIATING` 仅限原 Decision=`CONFIRMED`；原 Decision 为 CONDITIONAL / NEEDS-DECISION 时按 ledger 合法组合保持 `OPEN`）。
 5. 核对所有已确认实例已修复或有直接证据排除；检查被替换但仍存活的 helper、writer、route、export、feature flag 和旧数据路径。
 
 ## 5. 异质方法复核
@@ -87,7 +87,7 @@
 - `CLAIM-REFUTED`：记录主代理反证，不为满足代理意见修改正确代码。
 - `MISSED-INSTANCE`：回到模式范围，确认是孤立遗漏还是边界定义错误。
 - `NEW-REGRESSION`：先记录新的 H/E，由主代理完成 disconfirmation 后规范化 Finding，并作 Decision/Severity/Confidence；新增 `CONFIRMED` Critical/High 必须在本批及相关请求 Gate 上通过已验证的 resolution 或合法风险接受完成处置；只有满足全局 Disposition 条件时才使用 `RESOLVED-VERIFIED` / `ACCEPTED-RISK`；新增 Critical/High `CONDITIONAL` 必须补齐决定性 Evidence 并重新裁决，`NEEDS-DECISION` 必须取得所需授权决策。上述状态未收口前，当前批次不得静默通过。
-- `VERIFICATION-GAP`：写清缺失环境、平台或契约；不改变已有 Finding 的 Decision，尚未验证完成的修复保持 `REMEDIATING`。
+- `VERIFICATION-GAP`：写清缺失环境、平台或契约；不改变已有 Finding 的 Decision，尚未验证完成的修复保持 `REMEDIATING`（原 Decision 非 `CONFIRMED` 时按组合表保持 `OPEN`）。
 
 每批都更新权威 `fix-map`；只有 Decision、Disposition 或决定性 Evidence 实际变化时才同步更新权威 ledger。主代理确认批间门通过后才进入下一批。
 

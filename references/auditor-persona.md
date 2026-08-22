@@ -8,7 +8,7 @@
 - 主代理先提供来自 `audit.md` 的 target/base/head/scope/excluded，再提供权威共享事实位置中与该单元相关的 **DIRECT 共享事实摘要**（独立 `project-map.md`，或 `audit.md` 的 Embedded shared facts）。共享事实不是结论；发现补充事实有误时可用直接证据提出 `MAP-CORRECTION`。若冲突的是 `audit.md` 的任务契约/基线/范围，单独报告冲突并停止依赖该前提，不得自行改范围。
 - **共享事实，隔离判断**：不传其他调查者的 Hypothesis/Evidence 解释、Finding、Decision、主代理预期答案或 Risk tolerance。风险主张是本任务的验证目标，不等于“已怀疑某个具体 bug”。
 - 每个子代理指定唯一产物路径：`<审计状态目录>/investigations/<unit>-<agent>.md`；两个代理不得写同一文件。
-- 模板中的占位符必须全部替换或显式写“无”。
+- 模板中的占位符必须全部替换或显式写“—”（与账本 H/E 模板的空值约定一致）。
 - H/E 产物模板由主代理随任务原文内联；本模块不要求调查者再加载账本 reference。不得自行改成“候选 Finding + 最终严重度”。
 - 持久化可用时，主代理聚合前从权威 investigation 文件读取并核对返回的 H/E ID；会话内模式则从权威同构状态核对。消息文本仅用于传输校验。
 - 子代理之间禁止互发消息或共享判断；合并点只能是主代理。
@@ -27,7 +27,7 @@
 - Safe prediction：<SAFE_PREDICTION>
 - Failure prediction：<FAILURE_PREDICTION>
 - Discriminating observation：<DISCRIMINATING_OBSERVATION>
-- Sufficiency criterion：<SUFFICIENCY_CRITERION>
+- Sufficiency criterion：<SUFFICIENCY_CRITERION>（以上 Safe/Failure/Discriminating/criterion 四项仅 highest/high 单元必填；normal 单元写 —）
 - 验证 archetype：<VERIFICATION_ARCHETYPE>
 - 证据视角（可选）：<EVIDENCE_LENS>
 - 信息隔离：不得读取或交换其他调查者的 Hypothesis、Evidence 解释、Finding 或 Decision。
