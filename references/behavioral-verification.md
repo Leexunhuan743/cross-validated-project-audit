@@ -58,7 +58,7 @@
 本节**只产出/评价 Evidence，不直接作 Decision**；每条运行时 Evidence 使用任务已载入的统一 Strength / Reproducibility 词汇标注。最终 Decision、Severity 与 Confidence 由主代理在 Finding/Decision 层裁决。
 
 - 真实公共路径有可重复步骤并稳定复现目标行为：通常至少 `ES3`；只有在与该主张相关的目标平台/版本/构建条件下通过真实公共入口复现，才达到 `ES4`。对应版本权威契约可提高整体 Confidence，但不能把非目标环境或仅内部 helper 的复现升级为 `ES4`。
-- 完整静态调用/数据/契约链可独立重查但缺执行复现：通常 `ES2`；局部代码/日志/输出 indication 且条件未闭合：`ES1`。这些等级描述 Evidence 质量，不直接等于 Confidence。
+- 完整静态调用/数据/契约链可自行重查但缺执行复现：通常 `ES2`；局部代码/日志/输出 indication 且条件未闭合：`ES1`。这些等级描述 Evidence 质量，不直接等于 Confidence。
 - 保护条件、安全反例、不可达约束或真实运行结果否定主张：形成 DIRECT refuting Evidence。
 - 行为事实已证实、但是否接受属于产品/兼容策略：Evidence 只记录事实与影响，是否需要用户/产品决策由主代理决定。
 - Evidence 冲突时，优先比较 Strength、Reproducibility、目标版本/公共路径相关性和是否存在未解释前提；目标环境可重复反证通常高于本地模拟或局部静态 indication。保留双方 Evidence 并调查冲突原因，不按数量投票。
@@ -68,8 +68,8 @@
 ## 6. 与异质验证方法配合
 
 - 运行时/公共行为风险优先把 `user-path-trace` 与另一种不同 archetype 配对，例如 `implementation-trace`、`state-invariant-analysis` 或 `contract-spec-verification`。
-- 不向第二条独立发现路径泄露第一条路径的预期结论；同一公共路径被两个代理照抄执行，不自动形成方法异质性。
-- 主代理按当前 risk coverage 检查风险主张是否由不同 archetype 与不同证据源覆盖；相同代码推断不能冒充两份独立证明。
+- 不向第二条发现路径泄露第一条路径的预期结论；同一公共路径被两个代理照抄执行，不自动形成方法异质性。若要声称 independent validation，第二条路径还必须由不同执行者完成且判断隔离。
+- 主代理按当前 risk coverage 检查风险主张是否由不同 archetype 与不同证据源覆盖；相同代码推断不能冒充异质验证，也不能单凭执行次数声称 independent validation。
 - 需要写探针或测试时，由主代理批准隔离位置和清理方式；调查阶段子代理不得修改项目源码（唯一例外：自己的 `investigations/` 产物文件）。
 
 ## 7. 无法验证时的报告

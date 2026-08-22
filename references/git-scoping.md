@@ -42,9 +42,26 @@ git for-each-ref --format='%(refname:short)' refs/remotes/
 
 shallow clone 或缺对象导致 `merge-base` 失败时，回退到平台 PR 元数据/补丁并显式记录；无法解析的拓扑列为残留缺口，不要推断。
 
+## Git 范围解析协议
+
+Git 场景直接应用主流程的 Scope Resolution Protocol；本模块只负责把候选范围解析成可核对的不可变 commit，并提供 Git 特有的范围摘要。对“最近的提交/最近改的代码/近期 PR/这个作者最近的提交”等模糊请求：
+
+- 先枚举最少数量的**自然候选范围**，不要静默选择“最近 5 个/7 天”等任意数字；
+- 若候选范围会实质改变 Finding、Provenance、Gate 或明显漏掉用户关心的开发序列，先询问；
+- 询问前给出每个候选范围的 commit 数量、起止时间和简短主题摘要，让用户知道这些 commits 主要做了什么；
+- 若不同合理范围不会改变核心结论，可采用最小可辩护范围并写 `scopeBasis=ASSUMED`、相应 `scopeConfidence` 与 `scopeAssumption`。
+
+只读摘要示例：
+
+```bash
+git log --format='%H%x09%ad%x09%s' --date=short <candidate-range>
+```
+
+提交主题只是帮助用户理解范围，不是 Evidence；最终范围仍解析成不可变 commit。
+
 ## PR 与功能分支
 
-优先从用户或当前 PR 元数据获得准确的 base/head，并解析成不可变 commit。若多个基线会改变结论，先询问用户。
+优先按上节协议从用户或当前 PR 元数据获得准确 base/head，并解析成不可变 commit；若多个合理基线会改变结论，先给出候选范围摘要再询问用户。
 
 ```bash
 git rev-parse <base>^{commit} <head>^{commit}
@@ -79,6 +96,8 @@ git log --oneline --reverse <base>..<head>
 git diff <base>...<head>
 ```
 
+历史范围与当前状态必须分开：一个 Finding 可以在范围内真实成立、又在后续提交中被修复/revert/supersede。此时保留其历史 Decision 与 Provenance；只有 DIRECT Evidence 证明它在本审计唯一权威 target/state snapshot 中已消失，才把 Disposition 记为 `RESOLVED-VERIFIED`；存在真实 Gate 时，还必须把它对所有相关请求 Gate 的 applicability 写为 `DOES-NOT-APPLY`。若当前状态对 `RELEASE` / `SYSTEM` 或目标变更的安全集成有决定性影响却无法验证，收集并返回 current-state Evidence 缺口，由主代理在 Finding 的 Gate applicability 中写 `UNRESOLVED`；不把历史成立或历史修复直接外推到其它当前状态。需要评估不同 `head`、release candidate 或部署状态时，分别建立审计实例。
+
 merge commit 先确定用户要审计合并结果、某一父分支增量还是冲突解决：
 
 ```bash
@@ -94,7 +113,7 @@ git diff <merge>^2 <merge>
 
 `scopeMode=author-commits` 时，先把“作者是谁、在哪个不可变范围内”解析清楚，再审查；默认按 Git **author identity** 归因，不把 committer、reviewer 或 merge 执行者混为作者。
 
-1. 解析并记录不可变 `<base>` / `<head>` 或用户给定的提交范围；未给范围且不同合理范围会改变结论时先询问。
+1. 按 Git 范围解析协议解析并记录不可变 `<base>` / `<head>` 或用户给定范围；“最近/近期”不得静默解释成任意 commit 数或时间窗。
 2. 先枚举范围内提交及 author name/email，再做身份归一；`--author` 是正则匹配，只可作候选过滤，姓名重名、多个邮箱或机器人代提交时必须核对实际 identity，不靠显示名猜测。
 3. 对命中的每个提交读取真实 patch 与父提交关系；同时收集其触达的路径/符号，在目标 `head` 上检查当前实际状态。被后续提交回退、覆盖或重写的内容仍属于历史审计证据，但不得冒充当前树仍存在。
 4. 对每个需要变更归因的 material Finding 收集可直接核对的 base/head、目标提交、历史实现和可达性 Evidence；最终 Provenance 由任务统一评估模型判定，本模块不重复定义归因枚举。
@@ -171,4 +190,4 @@ git show <base>:<path>
 git blame <head> -- <path>
 ```
 
-`blame` 只定位历史线索，不判断责任。若问题既有但本次变更使其可达、扩大影响或阻碍恢复，Finding 标为 `EXPOSED` 并分别写清既有根因与增量影响；纯既有且未被目标变更实质改变的标为 `PRE_EXISTING`。
+`blame` 只定位历史线索，不判断责任。这里负责收集 base/head、历史实现、可达性和增量影响的 DIRECT Evidence；最终 Provenance 分类由 assessment model 的唯一规范定义决定，本模块不重复枚举语义。

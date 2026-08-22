@@ -21,7 +21,7 @@ Result: counter-supported / counter-refuted / unresolved
 - `counter-supported`：原 H 应关闭或缩窄后重新表述；缩窄后若仍 material，按新的 H 重新完成 disconfirmation，不得直接提升为 Finding。
 - `counter-refuted`：可继续提升，但仍保留找到的 limiting Evidence。
 - `unresolved`：优先保留为 residual gap；若已有足够 Evidence 使其仍值得规范化为 Finding，必须显式保留未解条件，Decision 不得写 `CONFIRMED`，并相应降低 Confidence 而不是降低 Severity。
-- 暂定 Severity 为 Critical/High 的 Finding 在 Decision 定稿前必须尝试第二种异质 archetype 的挑战或等价直接反证搜索；只有完成该要求且 Evidence 足够时才可 `CONFIRMED`。做不到时保留验证缺口并在 Decision/gate 中体现；普通 Finding 不要求为了形式额外派代理，但仍必须有上述最小 disconfirmation 记录。
+- 暂定 Severity 为 Critical/High 的 Finding 在 Decision 定稿前必须尝试第二种异质 archetype 的挑战或等价直接反证搜索；只有完成该要求且 Evidence 足够时才可 `CONFIRMED`。做不到时保留验证缺口并在 Decision/相关 Gate 中体现；普通 Finding 不要求为了形式额外派代理，但仍必须有上述最小 disconfirmation 记录。
 
 ## 2. Finding 风险评估维度
 
@@ -70,9 +70,9 @@ Confidence 是 Finding 的一等属性，回答“我们有多确定这条 Findi
 | Strength | 标准 |
 |---|---|
 | `ES1` | 局部 DIRECT indication：真实代码/日志/输出/契约片段已看到，但完整调用链、状态条件或影响尚未闭合 |
-| `ES2` | 完整可追踪链：调用/数据/状态/契约链已闭合，另一调查者可从引用来源独立重查；不依赖未说明猜测 |
+| `ES2` | 完整可追踪链：调用/数据/状态/契约链已闭合，另一调查者可从引用来源自行重查；不依赖未说明猜测 |
 | `ES3` | 可执行或确定性复现：有最小步骤、输入、环境与可观察结果，可由另一人重复验证；包括可重复的 schema/build/load/artifact validation |
-| `ES4` | 目标权威复现：ES3 在与该主张相关的目标平台/版本/构建条件下，通过真实公共入口成立；对应版本权威契约可作为独立佐证，但非目标环境复现或仅内部 helper 复现不能升级为 ES4 |
+| `ES4` | 目标权威复现：ES3 在与该主张相关的目标平台/版本/构建条件下，通过真实公共入口成立；对应版本权威契约可作为额外佐证，但非目标环境复现或仅内部 helper 复现不能升级为 ES4 |
 
 `Reproducibility` 只使用：
 
@@ -85,9 +85,32 @@ Confidence 是 Finding 的一等属性，回答“我们有多确定这条 Findi
 
 - Strength 是**单条 Evidence 的质量**；Confidence 是主代理对整个 Finding 的综合确定度，两者不得混用。
 - 多条 ES1 不会因为数量多自动变成 ES3/ES4。
-- 测试通过、代理共识、无来源日志或无法重复的一次偶发失败不能单独高于 ES1。
+- **仅有“测试/测试套件通过”这一事实**、代理共识、无来源日志或无法重复的一次偶发失败，不能单独高于 ES1；若测试本身对目标错误具有判别力，并记录了可重复的输入、环境、PRE-fix/POST-fix 或等价可观察差异，则按 ES3/ES4 的复现标准评级，而不是被本条限制。
 - 目标平台/公共路径的可重复反证可以推翻多条较弱支持 Evidence；冲突 Evidence 必须保留并解释，不按数量投票。
-- `ES3/ES4` 必须记录足够的最小复现信息，使独立人员可以重复；缺少关键输入、环境或步骤时降级为 ES1/ES2。
+- `ES3/ES4` 必须记录足够的最小复现信息，使其他人员可以重复；缺少关键输入、环境或步骤时降级为 ES1/ES2。
+
+### Material Evidence 冲突：用判别性证据裁决
+
+当支持与反证 Evidence 对同一 material 主张给出冲突结论时，不按代理数量、Evidence 条数或主观可信度投票。主代理先找出双方依赖的**最小分歧前提**，再优先设计能够区分双方的直接观察、实验或契约核对。至少记录：
+
+```text
+Disputed assumption: <双方真正分歧的事实/前提>
+Supporting side relies on: <支持结论依赖什么>
+Refuting side relies on: <反证结论依赖什么>
+Discriminating evidence: <什么 DIRECT 观察可使两种解释产生不同预期>
+Result: <实际观察；或 unavailable + 原因>
+Resolution: resolved-supporting / resolved-refuting / narrowed / unresolved
+```
+
+规则：
+
+- 记录位置沿用现有状态层：Finding 形成前写在对应 investigation 的 reasoning/disconfirmation 附近；Finding 已形成则写入 `verification/F<n>.md` 并引用双方 Evidence ID，不新增第二套账本字段。
+- 优先选择最小、低副作用、最贴近目标公共路径的判别方法；不要为了“第三票”重复同一 archetype。
+- `resolved-supporting`：保留支持方向，但不自动等于 `CONFIRMED`，仍按完整 Decision 条件裁决。
+- `resolved-refuting`：Finding 形成前关闭或缩窄原 Hypothesis；Finding 已形成时必须重新评估 Decision，反证足以否定主张时改为 `REJECTED`。
+- `narrowed`：缩窄 Hypothesis/Finding 的适用条件并保留双方 Evidence；若 Finding 已形成，重新评估风险维度、Severity、Confidence，以及适用时的 Provenance，不得把局部结果泛化。
+- `unresolved`：不得 `CONFIRMED`；material Finding 使用 `CONDITIONAL`，关键缺口按相关 Gate 规则处理。
+- 若冲突来自目标版本、环境或契约不一致，先固定实际适用的版本/环境，再比较 Evidence Strength；不能混用不同目标条件下的“正确”结果。
 
 ## 5. Provenance：区分变更风险与现存风险
 
@@ -107,6 +130,7 @@ Provenance 只在任务需要判断“风险与某个可比较变更/提交范�
 - `INTRODUCED` 与 `REGRESSED` 的区别：新能力/新路径自身带入缺陷用 `INTRODUCED`；已有可比较行为在 base 正确、head 变错用 `REGRESSED`。
 - `EXPOSED` 必须说明“既有根因 + 本次变更新增的可达/影响增量”；不能把纯既有问题包装成本次引入。
 - 作者提交审计中的 Provenance 只描述目标提交集合与风险的技术关系，不等于个人责任结论。
+- 历史范围中确认成立的 Finding，不因后续提交已修复、revert 或 supersede 而改成 `REJECTED`，也不改写原 Provenance。只有 DIRECT Evidence 验证该 Finding 在本审计唯一权威 target/state snapshot 中不再适用，才保持 Decision=`CONFIRMED` 与原 Provenance、把 Disposition 设为 `RESOLVED-VERIFIED` 并记录 resolution Evidence；存在真实 Gate 时，还必须把该 Finding 对所有相关请求 Gate 的 applicability 写为 `DOES-NOT-APPLY`。若当前适用性对 `RELEASE` / `SYSTEM`（或 `CHANGE` 的安全集成）重要但尚未验证，不得假设已修复，应保留相应 current-state Evidence 缺口，由主代理在 Finding 的 Gate applicability 中显式标记未决，再交 Gate 层处理。不同版本、候选或部署状态必须拆成独立审计实例。
 - 归因适用但无法证明时写 `UNKNOWN`，不要为了报告整齐猜测归因；归因本身不适用时写 `—`，不得用 `UNKNOWN` 伪装“不适用”。
 
 ## 6. Decision 语义与最小检查

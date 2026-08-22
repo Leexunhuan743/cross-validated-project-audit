@@ -1,6 +1,6 @@
 # 风险面、验证方法与证据视角
 
-覆盖设计的固定顺序是：**Risk → verification method → executor**。先回答“哪些风险必须被覆盖、什么 Evidence 能区分正确与错误”，再决定执行者。代理数量不是覆盖指标；共享 `project-map` 的 DIRECT 事实不会破坏独立性，真正必须隔离的是 Hypothesis、Evidence 的解释、Finding、Decision 和预期答案。
+覆盖设计的固定顺序是：**Risk → verification method → executor**。先回答“哪些风险必须被覆盖、什么 Evidence 能区分正确与错误”，再决定执行者。代理数量不是覆盖指标；共享 `project-map` 的 DIRECT 事实不会破坏判断隔离，真正必须隔离的是 Hypothesis、Evidence 的解释、Finding、Decision 和预期答案。
 
 ## 1. 核心风险面
 
@@ -24,19 +24,38 @@ CLI、UI、迁移、SDK、计划等不是额外的调度主键；它们用于决
 
 ## 2. 验证方法 archetype
 
-方法 archetype 表示“如何独立发现或反驳问题”。异质性来自方法和证据来源不同，而不是代理名字不同。
+方法 archetype 表示“如何从一种证据路径发现或反驳问题”。异质性来自方法和证据来源不同，而不是代理名字不同。
 
 | Archetype | 主要动作 | 最适合证明/反驳 |
 |---|---|---|
 | `implementation-trace` | 从真实实现沿调用、数据、错误路径追踪到效果 | 逻辑错误、遗漏 guard、错误调用链、不可达假设 |
 | `user-path-trace` | 从 CLI/API/UI/迁移/SDK 等公共入口逆推真实用户行为 | 可达性、集成错误、公开行为与内部实现脱节 |
 | `state-invariant-analysis` | 明确状态机/不变量，枚举转换、重入、取消、部分失败 | 状态一致性、并发、生命周期、恢复问题 |
-| `test-discrimination` | 判断测试是否会在 PRE-fix/错误实现下失败，必要时隔离变异 | 伪回归保护、脆弱 mock、只测实现细节 |
+| `test-discrimination` | 判断测试是否会在 PRE-fix/错误实现下失败，并记录判别力；必要时隔离变异 | 伪回归保护、脆弱 mock、只测实现细节 |
 | `adversarial-challenge` | 主动构造反例、攻击路径、边界输入和失败注入 | 安全、边界、错误处理、过度自信的 Hypothesis/Finding |
 | `history-regression-analysis` | 检查历史实现、revert、相关 commit、旧缺陷与行为变化 | 回归、归因、兼容性、曾经修过又复发的问题 |
 | `contract-spec-verification` | 对照需求、schema、协议、官方/对应版本契约和公共承诺 | 需求忠实度、API/协议、第三方/平台语义、文档主张 |
 
-方法可产生辅助证据，但**不得静默换方法后仍把结果算作原 archetype 的独立证明**。某方法因环境不可用无法执行时，记录 coverage gap，再选择能回答同一风险主张的替代方法；替代方法必须在矩阵中显式登记。
+方法可产生辅助证据，但**不得静默换方法后仍把结果算作原 archetype 的验证证明**。某方法因环境不可用无法执行时，记录 coverage gap，再选择能回答同一风险主张的替代方法；替代方法必须在矩阵中显式登记。
+
+### Test discrimination 记录
+
+当测试被用于支撑 material Finding、回归保护或修复验收时，不能只写“tests green”。至少记录：
+
+```text
+Test: <name/path>
+Discrimination: YES / PARTIAL / NO / UNKNOWN
+Basis: <safe behavior 与 failure behavior 是否产生不同结果；PRE-fix/变异/等价检查是什么>
+Test issue: ENCODES_FAILURE / MISSING_REGRESSION / —
+```
+
+- `YES`：重新引入目标 failure（或等价 PRE-fix 行为）会使测试失败，safe/failure 有清晰不同结果。
+- `PARTIAL`：只能区分部分必要条件/实例，不能覆盖完整 Finding。
+- `NO`：safe/failure 都可能通过，不能作为该主张的判别性保护。
+- `UNKNOWN`：没有做 PRE-fix、变异或等价判别，不能因为测试存在/通过而升级。
+- `ENCODES_FAILURE` 表示测试把错误行为写成 expected；`MISSING_REGRESSION` 表示缺少能重现该 Finding 的回归案例。二者是可选 issue，不与四值判别力混成一个枚举。
+- 记录写在产生该测试 Evidence 的 investigation/verification 附近；ledger 不复制 Test discrimination。
+
 
 ## 3. 证据视角（辅助，不作为调度主键）
 
@@ -54,14 +73,14 @@ CLI、UI、迁移、SDK、计划等不是额外的调度主键；它们用于决
 ## 4. 风险驱动的覆盖选择
 
 1. 从 Audit objectives、变更触达边界、公共入口、状态/数据边界和失败后果列出相关风险面。
-2. 对每个风险面写一个可判定的“风险主张/不变量”和现实失败后果，并给覆盖优先级：`highest`（判断错误可能直接改变门禁或造成重大损害）、`high`（有明确重要影响）、`normal`（其余相关风险）。这是派发优先级，不是 finding 严重度，也不得因 `Risk tolerance` 放宽而降低；没有具体主张的风险面不要为了 checklist 填充。
-3. 为每个高风险主张先选择能**区分真假**的验证 archetype，再分配执行者；执行者是最后一步。
-4. 最高风险不变量至少使用两个**不同 archetype**，且信息隔离；优先让它们来自不同证据源（如实现追踪 + 公共路径、契约 + adversarial challenge）。
-5. 两个调查者可以共享 baseline、scope、术语、公共入口、changed files 等 DIRECT 事实；这不削弱独立性。若共享了前一个人的 Hypothesis/Finding/Decision 或解释性结论，则不能再声称判断独立。两个执行者用同一 archetype、同一证据路径仍只算冗余复核。
-6. 所有准备提升为 Finding 的 material Hypothesis 都先完成任务协议规定的最小 disconfirmation；暂定 Severity 为 Critical/High 的 Finding 在 Decision 定稿前必须尝试第二种异质方法挑战或等价直接反证搜索，完成后才具备 `CONFIRMED` 的方法覆盖前提。确实做不到时记录 coverage gap 并映射门禁，不为凑形式复制代理。
+2. 对每个风险面写一个可判定的“风险主张/不变量”和现实失败后果，写入 coverage 时分配稳定 `Claim ID`，并写入 `Risk priority`：`highest`（判断错误可能直接改变门禁或造成重大损害）、`high`（有明确重要影响）、`normal`（其余相关风险）。这是派发优先级，不是 finding 严重度，也不得因 `Risk tolerance` 放宽而降低；没有具体主张的风险面不要为了 checklist 填充。
+3. 对 `highest/high` 风险主张先写 `Safe prediction / Failure prediction / Discriminating observation / Sufficiency criterion`：若安全应观察到什么、若 failure 存在应观察到什么、哪条最小 DIRECT 观察能区分两者，以及达到什么 Evidence 条件才足以裁决该具体主张；再选择验证 archetype 和执行者。Sufficiency criterion 必须与风险性质相称，不设全局“high 必须 ES4”阈值，也不得因当前环境拿不到证据而由调查者自行降低。事前预测/标准都不是 Evidence，只有实际观察才编号成 E；criterion 的最终 `MET/NOT-MET` 结果写入权威 coverage schema。
+4. 每个最高风险 `Claim ID` 至少使用两个**不同 archetype**，用于满足这一要求的单元都必须是 `REQUIRED`。只有同组单元实际满足“不同执行者 + `Judgment isolation=ISOLATED`”才可额外计为 independent validation；同一执行者的多种方法只满足异质性。执行者分配、隔离重跑、有界降级与强制独立验证的完成规则按 `SKILL.md` §3，结果写入 coverage 与 Residual risks。
+5. 不同调查者可以共享 baseline、scope、术语、公共入口、changed files 等 DIRECT 事实；若共享了前一路径的 Hypothesis/Finding/Decision 或解释性结论，则不能再把对应 coverage 单元标为 `Judgment isolation=ISOLATED`。两个执行者用同一 archetype、同一证据路径仍只算冗余复核。
+6. 所有准备提升为 Finding 的 material Hypothesis 都先完成最小 disconfirmation；暂定 Critical/High 的 Finding 在 Decision 前规划/尝试第二种异质 archetype 或等价直接反证。具体 Decision 前提由 assessment model 负责；本模块只记录方法覆盖是否完成/缺失，不为凑形式复制代理。
 7. 执行者可以是主代理或子代理；一个执行者可以承担多个低风险单元，一个高风险主张也可以由多个单元/执行者覆盖。**不要把“一个代理 = 一个风险面”写死。**
 8. 不要求每个风险面都使用所有 archetype；选择最少但足以区分关键失败模式的方法集合。
-9. 新探索 round 是否继续由主流程的 `stopPolicy` 决定；本模块只负责识别是否出现新的 material Hypothesis（若成立预计形成 Medium+ Finding）、会改变 Decision/Severity/gate 或使 Confidence 跨越 Decision 所需阈值的 Evidence、系统性模式、新 highest/high 风险或关键冲突，不重复定义停止阈值。
+9. 新探索 round 是否继续由主流程的 `stopPolicy` 决定；本模块只负责识别是否出现新的 material Hypothesis（若成立预计形成 Medium+ Finding）、会改变 Decision/Severity/任一 Gate 或使 Confidence 跨越 Decision 所需阈值的 Evidence、系统性模式、新 highest/high 风险或关键冲突，不重复定义停止阈值。
 
 ## 5. 常见目标的风险/方法组合
 
