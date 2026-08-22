@@ -63,7 +63,7 @@ Deliverable
 |---|---|
 | `READY` | 当前任务契约和 required coverage 已闭环，没有已知阻断或条件项 |
 | `READY-WITH-CONDITIONS` | 没有阻断项，但仍有明确非阻断条件、Medium/Low 待处理项或残留风险 |
-| `BLOCKED` | 存在对当前 `gateTarget` 相关、且当前仍适用的已确认 Critical/High 风险，尚未完成处置 |
+| `BLOCKED` | 存在对当前 target 相关、且当前仍适用的已确认 Critical/High 风险，尚未完成处置 |
 | `INCOMPLETE` | 关键 Evidence、环境、material Hypothesis 处置或 required coverage 不足，无法可靠判断是否可放行 |
 
 `INCOMPLETE` 不等于“审计没做完”：当关键证据客观不可得且缺口已经明确记录时，它可以是一次完整执行后的正确结论。

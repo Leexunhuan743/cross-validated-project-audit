@@ -214,7 +214,7 @@ Decision 变更记录只追加：
 - Sufficiency criterion: <...>
 ```
 - `Sufficiency` 是主代理对计划 criterion 的核对结果：`planned/dispatched/reported` 阶段写 `—`；`highest/high` 单元在主代理核对时定稿 `MET` / `NOT-MET`；没有 criterion 的 normal 单元写 `N/A`。判定可引用当前风险主张已经汇总的其它 DIRECT Evidence，但必须保持 Evidence 来源与判断隔离可追溯。`verified` 只表示 H/E 已核对，不自动等于 Evidence 充分；`NOT-MET` 必须映射 residual gap 或补充 `REQUIRED` coverage。若该单元列出某个 Gate target，则在 criterion 重新达到 `MET` 前，该 target 不得 `READY`。
-- `Judgment isolation` 在 `planned` / `dispatched` / `reported` 阶段可写 `—`；主代理在核对实际信息暴露后、coverage 达到 verified 前定稿为 `ISOLATED` / `NOT-ISOLATED` / `N/A`。实际隔离边界以 `auditor-persona.md` 为规范；不同 executor 名称本身不足以证明隔离。`N/A` 仅用于该单元不参与 independent validation 声称。只有相关单元由不同执行者完成、均为 `ISOLATED` 且未接触其它判断路径结论时，才可声称 independent validation。
+- `Judgment isolation` 在 `planned` / `dispatched` / `reported` 阶段可写 `—`；主代理在核对实际信息暴露后、coverage 达到 verified 前定稿为 `ISOLATED` / `NOT-ISOLATED` / `N/A`。实际隔离边界以 `auditor-persona.md` 为规范；不同 executor 名称本身不足以证明隔离。`N/A` 仅用于不参与异质覆盖与 independent validation 要求的单元（EXPLORATORY 单元，或不在任何最高风险组异质覆盖内的单元）；用于满足最高风险组要求的 required 单元即使降级为单执行者或非隔离，也必须在 `ISOLATED` / `NOT-ISOLATED` 中定稿，不得写 `N/A`。只有相关单元由不同执行者完成、均为 `ISOLATED` 且未接触其它判断路径结论时，才可声称 independent validation。
 - `状态` 单向推进：`planned → dispatched → reported → verified`。`reported` 表示调查文件已到达；`verified` 只有在主代理完成该单元的 H/E 核对后才能写。对 `highest/high` 单元，进入 `verified` 前还必须把 `Sufficiency` 从 `—` 定稿为 `MET` / `NOT-MET`。
 - `核对` 必须逐个处理 material Hypothesis：`H→F<n>`、`H→refuted(E...)` 或 `H→residual-gap(...)`。`H→F<n>` 前还必须确认该 H 的 disconfirmation 四项完整；不能因为调查者写“无问题”或只给支持 Evidence 就直接 verified。
 - `Finding` 列列出由该单元促成的 F id；没有写 `—`。同一 F 可以被多个异质单元共同支持。
@@ -322,7 +322,7 @@ Decision 变更记录只追加：
 
 ## 5. 断点恢复
 
-1. 找到正确状态实例后先读取 `audit.md` 与 `ledger.md`；仅接受当前协议定义且所需字段完整的状态实例，不解析或补全旧格式。严格按 `sharedFactsLocation` / `coverageLocation` 恢复：指向独立文件时该文件必须存在且对应 Embedded section 必须不存在；指向 `embedded` 时对应独立文件必须不存在且 Embedded section 必须存在。发现双源、缺源或指针不一致时状态无效/待消歧，不得静默选择较新的内容。`stopPolicy=user-defined` 时 `stopCriteria` 必须存在且非空；缺失即状态无效，不得猜测或从旧格式迁移。
+1. 找到正确状态实例后先读取 `audit.md` 与 `ledger.md`；仅接受当前协议定义且所需字段完整的状态实例，不解析或补全旧格式。严格按 `sharedFactsLocation` / `coverageLocation` 恢复：指向独立文件时该文件必须存在且对应 Embedded section 必须不存在；指向 `embedded` 时对应独立文件必须不存在且 Embedded section 必须存在。发现双源、缺源或指针不一致时状态无效/待消歧，不得静默选择较新的内容。待消歧时向用户呈现冲突事实（各候选路径及其内部元数据）并请求决定；无法获得用户决定时按无有效历史状态处理、新建审计实例，不修改或删除任何冲突副本，并在报告中披露全部冲突路径。`stopPolicy=user-defined` 时 `stopCriteria` 必须存在且非空；缺失即状态无效，不得猜测或从旧格式迁移。
 2. 对当前权威 coverage，`reported` 但未 `verified` 的单元读取对应 investigation，补做 H→F/refuted/gap 核对，不重跑调查者。
 3. Finding 存在但 Decision=`PENDING`：继续 disconfirmation、风险维度/Confidence 评估、主代理验证与裁决；`verification/` 已有 Evidence 直接复用，不重复采集。
 4. 在 `audit-and-fix` / `fix-verification` 模式下，同时恢复 Disposition `OPEN` / `REMEDIATING` 和 `fix-map.md` 未 `PASSED` 批次。
