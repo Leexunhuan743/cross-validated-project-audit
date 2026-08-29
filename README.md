@@ -99,11 +99,15 @@ validator 通过只证明状态内部一致，不证明代码事实和风险判�
 写状态时最耗时的是机械劳动：同一个 `auditBinding` 要抄进每份 artifact、`reconciliations` 必须镜像 investigation 的 hypotheses、id 前缀有固定约定。这些与审计判断无关，却最容易写错。
 
 ```text
-python -B scripts/audit_state_helper.py init <dir> --audit-id X --target T --scope S --objective O
-python -B scripts/audit_state_helper.py bind <dir>            # 把 auditBinding 传播到所有被引用的 artifact
-python -B scripts/audit_state_helper.py bind <dir> --check    # 只报告不修改
-python -B scripts/audit_state_helper.py lint <dir>            # 机械一致性检查（只读）
+python -B scripts/audit_state.py init <dir> --id X --target T --scope S --objectives O...
+python -B scripts/audit_state.py bind <dir>                   # 给所有被引用 artifact 打 auditBinding
+python -B scripts/audit_state.py bind <dir> --check           # 只报告不修改
+python -B scripts/audit_state.py bind <dir> --artifact <file> # 只处理指定文件
+python -B scripts/audit_state.py lint <dir>                   # 机械一致性检查（只读）
+python -B scripts/audit_state.py verify <dir>                 # 转调 validator
 ```
+
+`bind` 有一条不自动化的规则：遇到**已存在但不匹配**的 `auditBinding`，它默认**拒绝覆盖**并提示"该证据属于另一次审计，必须重新取证而非重新打标"。只有显式 `--force` 才覆盖——因为重新打标会把旧快照的证据洗白成当前证据。
 
 它**只做机械操作**：不推断 Severity、Decision、Sufficiency 或 Gate 结果，也不替代 validator——合法性仍由 validator 裁决。没有 Python 时手工照 §3.1.1 模板写即可，协议不依赖它。
 
@@ -157,7 +161,7 @@ python -B scripts/audit_state_helper.py lint <dir>            # 机械一致性�
 | `references/core-failure-patterns.md` | 风险地图有盲区或需要 Hypothesis seeds | 按需 |
 | `references/fix-verification.md` | 实施修复或严格修复验证 | 完整档 |
 | `scripts/validate_audit_state.py` | 可选校验器，Python 3.9+ | 可选 |
-| `scripts/audit_state_helper.py` | 可选机械辅助：init / bind / lint | 可选 |
+| `scripts/audit_state.py` | 可选机械辅助：init / bind / lint / verify | 可选 |
 
 `agents/openai.yaml` 是客户端元数据，`assets/icon.svg` 是图标。当前仓库只维护中文协议 v2，不再附带独立英文变体。
 

@@ -117,12 +117,18 @@ validator 检查结构、引用、状态组合和 Gate 是否过强，不证明�
 可选的机械辅助（同样只需标准库与 Python 3.9+），用于消除重复手写，不参与任何语义判断：
 
 ```text
-python -B <skill-root>/scripts/audit_state_helper.py init <dir> --audit-id X --target T --scope S --objective O
-python -B <skill-root>/scripts/audit_state_helper.py bind <dir>          # 把 auditBinding 传播到所有被引用 artifact
-python -B <skill-root>/scripts/audit_state_helper.py lint <dir>          # 机械一致性检查，只读
+python -B <skill-root>/scripts/audit_state.py init <dir> --id X --target T --scope S --objectives O...
+python -B <skill-root>/scripts/audit_state.py bind <dir>          # 给所有被引用 artifact 打 auditBinding
+python -B <skill-root>/scripts/audit_state.py bind <dir> --check  # 只报告不修改
+python -B <skill-root>/scripts/audit_state.py lint <dir>          # 机械一致性检查，只读
+python -B <skill-root>/scripts/audit_state.py verify <dir>        # 转调 validator
 ```
 
-`init` 生成最小骨架；`bind` 在每份 artifact 落盘后同步归属绑定，避免把旧 snapshot 的证据当前化；`lint` 只读报告 id 前缀、`reconciliations` 与 hypotheses 的镜像关系、`sourceHypotheses` 双向一致等问题，可在跑 validator 之前先用。**它们不替代 validator**：合法性仍只由 validator 裁决，没有 Python 时照 §3.1.1 的最小模板手写即可。
+`init` 生成最小骨架（含 `scopeMode` / `basis` / `assumption` 等契约字段）；`bind` 在每份 artifact 落盘后同步归属绑定；`lint` 只读报告 id 前缀、`reconciliations` 与 hypotheses 的镜像关系、`sourceHypotheses` 双向一致等问题，可在跑 validator 之前先用。
+
+`bind` 有一条**不自动化**的规则：遇到已存在但不匹配的 `auditBinding` 时默认拒绝覆盖——那说明证据属于另一次审计或另一个 snapshot，必须重新取证，重新打标只会把旧证据洗白成当前证据。确需覆盖时显式加 `--force`。
+
+**它们不替代 validator**：合法性仍只由 validator 裁决，没有 Python 时照 §3.1.1 的最小模板手写即可。
 
 ## 5. 建立风险地图并派发
 

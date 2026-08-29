@@ -6,11 +6,17 @@ helper exists solely to remove mechanical work that a main agent otherwise
 repeats by hand:
 
   init    create a minimal state.json skeleton for a new audit instance
-  bind    stamp or verify `auditBinding` on an investigation/verification JSON
+  bind    stamp or verify `auditBinding` on investigation/verification JSON
+  lint    report mechanical inconsistencies (read-only)
   verify  thin wrapper around validate_audit_state.py
 
 It makes no semantic decisions: it never invents a Claim, a Finding, a
 Decision, a Severity or a Gate result. Standard library only, Python 3.9+.
+
+The one rule it defends rather than automates: a mismatched `auditBinding`
+means the artifact was gathered against another audit or snapshot. Such an
+artifact must be re-gathered, never re-stamped -- so `bind` refuses to
+overwrite it unless `--force` is passed explicitly.
 """
 
 from __future__ import annotations
@@ -28,7 +34,14 @@ SCOPE_MODES = {"project", "change", "pr", "author-commits"}
 SCOPE_BASIS = {"USER", "PLATFORM", "REPOSITORY", "ASSUMED"}
 SCOPE_CONFIDENCE = {"HIGH", "MEDIUM", "LOW"}
 EXECUTION_MODES = {"audit-only", "audit-and-fix"}
+SNAPSHOT_KINDS = {"git", "git-worktree", "archive", "deployment", "other"}
 STATE_NAME = "state.json"
+
+RECOMMENDATION_TO_RESULT = {
+    "promote-to-finding": "FINDING",
+    "close": "REFUTED",
+    "residual-gap": "RESIDUAL-GAP",
+}
 
 
 def fail(message: str) -> int:
@@ -52,6 +65,74 @@ def write_json(path: Path, data: Any) -> None:
 
 def now_iso() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def load_json_object(raw: str, label: str) -> Any:
+    try:
+        value = json.loads(raw)
+    except json.JSONDecodeError as exc:
+        raise SystemExit(f"ERROR: {label} is not valid JSON: {exc}") from exc
+    if not isinstance(value, dict):
+        raise SystemExit(f"ERROR: {label} must be a JSON object") from exc
+    return value
+
+
+# --------------------------------------------------------------------------
+# shared state access
+# --------------------------------------------------------------------------
+
+
+def load_state(state_dir: Path) -> dict[str, Any]:
+    state_path = state_dir / STATE_NAME
+    if not state_path.is_file():
+        raise SystemExit(f"ERROR: {state_path} not found; run `init` first")
+    state = load_json(state_path)
+    if not isinstance(state, dict):
+        raise SystemExit(f"ERROR: {state_path} must contain a JSON object")
+    return state
+
+
+def expected_binding(state: dict[str, Any]) -> dict[str, Any]:
+    audit = state.get("audit")
+    if not isinstance(audit, dict):
+        raise SystemExit("ERROR: state.json has no audit object")
+    return {"auditId": audit.get("id"), "snapshot": audit.get("snapshot")}
+
+
+def resolve_inside(state_dir: Path, relative: str) -> Path:
+    candidate = (state_dir / relative).resolve()
+    try:
+        candidate.relative_to(state_dir.resolve())
+    except ValueError:
+        raise SystemExit(f"ERROR: path escapes the audit directory: {relative}")
+    return candidate
+
+
+def referenced_artifacts(state: dict[str, Any], state_dir: Path) -> list[str]:
+    """Artifacts the state actually points at, in a stable order.
+
+    Unreferenced files are deliberately excluded: the protocol treats them as
+    leftovers to quarantine, not as state to maintain.
+    """
+    found: list[str] = []
+    for unit in state.get("verificationUnits") or []:
+        if isinstance(unit, dict) and isinstance(unit.get("investigationFile"), str):
+            found.append(unit["investigationFile"])
+    for finding in state.get("findings") or []:
+        if isinstance(finding, dict) and isinstance(finding.get("verificationFile"), str):
+            found.append(finding["verificationFile"])
+    seen: set[str] = set()
+    result = []
+    for item in found:
+        if item not in seen:
+            seen.add(item)
+            result.append(item)
+    return result
+
+
+# --------------------------------------------------------------------------
+# init
+# --------------------------------------------------------------------------
 
 
 def cmd_init(args: argparse.Namespace) -> int:
@@ -106,61 +187,227 @@ def cmd_init(args: argparse.Namespace) -> int:
     state_path = target / STATE_NAME
     if state_path.exists() and not args.force:
         return fail(f"{state_path} already exists; pass --force to overwrite")
+    (target / "investigations").mkdir(parents=True, exist_ok=True)
+    (target / "verification").mkdir(parents=True, exist_ok=True)
     write_json(state_path, state)
     print(f"created {state_path}")
     print("next: add claims, then use `bind` to stamp auditBinding on each artifact")
     return 0
 
 
-def load_json_object(raw: str, label: str) -> Any:
-    try:
-        value = json.loads(raw)
-    except json.JSONDecodeError as exc:
-        raise SystemExit(f"ERROR: {label} is not valid JSON: {exc}") from exc
-    if not isinstance(value, dict):
-        raise SystemExit(f"ERROR: {label} must be a JSON object") from exc
-    return value
+# --------------------------------------------------------------------------
+# bind
+# --------------------------------------------------------------------------
+
+
+def stamp_one(path: Path, expected: dict[str, Any], force: bool, check: bool) -> tuple[str, str]:
+    """Return (status, message) where status is ok / stale / missing / error."""
+    if not path.is_file():
+        return "missing", str(path)
+    data = load_json(path)
+    if not isinstance(data, dict):
+        return "error", f"{path}: must contain a JSON object"
+    existing = data.get("auditBinding")
+    if existing == expected:
+        return "ok", str(path)
+    if existing is not None and not force:
+        return "stale", (
+            f"{path}: has a different auditBinding; refusing to overwrite it. "
+            "A mismatched binding means the artifact was gathered against another "
+            "audit or snapshot and must be re-gathered, not re-stamped "
+            "(pass --force if you are certain re-stamping is correct)."
+        )
+    if check:
+        return "stale", f"{path}: would be bound to {expected['auditId']!r}"
+    # Drop any existing binding first: `{**data}` last would otherwise win and
+    # silently restore the stale value we just decided to replace.
+    remainder = {k: v for k, v in data.items() if k != "auditBinding"}
+    rebuilt = {"auditBinding": expected, **remainder}
+    write_json(path, rebuilt)
+    return "bound", f"{path}: bound to {expected['auditId']!r}"
 
 
 def cmd_bind(args: argparse.Namespace) -> int:
-    state_path = Path(args.state_dir) / STATE_NAME
-    if not state_path.is_file():
-        return fail(f"{state_path} not found; run `init` first")
-    state = load_json(state_path)
-    audit = state.get("audit") if isinstance(state, dict) else None
-    if not isinstance(audit, dict):
-        return fail(f"{state_path} has no audit object")
-    expected = {"auditId": audit.get("id"), "snapshot": audit.get("snapshot")}
+    state_dir = Path(args.state_dir)
+    state = load_state(state_dir)
+    expected = expected_binding(state)
 
-    artifact_path = Path(args.artifact)
-    if not artifact_path.is_file():
-        return fail(f"artifact {artifact_path} not found")
-    data = load_json(artifact_path)
-    if not isinstance(data, dict):
-        return fail(f"{artifact_path} must contain a JSON object")
+    if args.artifact:
+        targets = [Path(args.artifact)]
+        if not targets[0].is_absolute():
+            targets[0] = resolve_inside(state_dir, args.artifact)
+    else:
+        targets = [resolve_inside(state_dir, rel)
+                   for rel in referenced_artifacts(state, state_dir)]
 
-    existing = data.get("auditBinding")
-    if existing is not None:
-        if existing == expected:
-            print(f"ok: {artifact_path} already bound to {expected['auditId']}")
-            return 0
-        return fail(
-            f"{artifact_path} has a different auditBinding; refusing to overwrite it. "
-            "A mismatched binding means the artifact was gathered against another "
-            "audit or snapshot and must be re-gathered, not re-stamped."
-        )
+    if not targets:
+        print("no referenced artifacts; nothing to bind")
+        return 0
 
-    data = {"auditBinding": expected, **data}
-    write_json(artifact_path, data)
-    print(f"bound {artifact_path} to {expected['auditId']}")
-    if not is_referenced_by_state(state, artifact_path, Path(args.state_dir)):
-        print(
-            "note: state.json does not reference this artifact yet. That is the expected "
-            "intermediate state — publish the canonical artifact first, then add the matching "
-            "verificationUnits[].investigationFile or findings[].verificationFile in one atomic "
-            "state replacement. Never write the state reference first."
-        )
+    problems = 0
+    for path in targets:
+        status, message = stamp_one(path, expected, args.force, args.check)
+        if status == "ok":
+            if args.artifact:
+                print(f"ok: {message} already bound to {expected['auditId']}")
+            continue
+        if status == "missing":
+            problems += 1
+            print(f"ERROR: {message} not found", file=sys.stderr)
+        elif status == "error":
+            problems += 1
+            print(f"ERROR: {message}", file=sys.stderr)
+        elif status == "stale":
+            problems += 1
+            print(f"ERROR: {message}", file=sys.stderr)
+        else:
+            print(message)
+
+    if problems:
+        return 1
+    if not args.artifact:
+        print(f"all referenced artifacts bound to {expected['auditId']}")
     return 0
+
+
+# --------------------------------------------------------------------------
+# lint
+# --------------------------------------------------------------------------
+
+
+def cmd_lint(args: argparse.Namespace) -> int:
+    state_dir = Path(args.state_dir)
+    state = load_state(state_dir)
+    expected = expected_binding(state)
+    problems: list[str] = []
+
+    unit_by_id = {
+        u["id"]: u for u in (state.get("verificationUnits") or [])
+        if isinstance(u, dict) and isinstance(u.get("id"), str)
+    }
+    finding_by_id = {
+        f["id"]: f for f in (state.get("findings") or [])
+        if isinstance(f, dict) and isinstance(f.get("id"), str)
+    }
+    promoted_to: dict[str, set[str]] = {fid: set() for fid in finding_by_id}
+
+    # 1. referenced artifacts exist and carry the current binding
+    for relative in referenced_artifacts(state, state_dir):
+        path = resolve_inside(state_dir, relative)
+        if not path.is_file():
+            problems.append(f"{relative}: referenced but missing")
+            continue
+        data = load_json(path)
+        if not isinstance(data, dict):
+            problems.append(f"{relative}: not a JSON object")
+            continue
+        if data.get("auditBinding") != expected:
+            problems.append(f"{relative}: auditBinding does not match state.json")
+
+    # 2. reconciliations mirror the investigation's hypotheses
+    for unit_id, unit in unit_by_id.items():
+        relative = unit.get("investigationFile")
+        if not isinstance(relative, str):
+            if unit.get("status") == "verified":
+                problems.append(f"{unit_id}: verified unit has no investigationFile")
+            continue
+        path = resolve_inside(state_dir, relative)
+        if not path.is_file():
+            continue
+        data = load_json(path)
+        if not isinstance(data, dict):
+            continue
+        if data.get("unitId") != unit_id:
+            problems.append(f"{relative}: unitId {data.get('unitId')!r} != {unit_id}")
+        for key in ("method", "claimId"):
+            if unit.get(key) is not None and data.get(key) != unit.get(key):
+                problems.append(f"{relative}: {key} {data.get(key)!r} != {unit.get(key)!r}")
+
+        local_evidence = {
+            e["id"] for e in (data.get("evidence") or [])
+            if isinstance(e, dict) and isinstance(e.get("id"), str)
+        }
+        for hyp in data.get("hypotheses") or []:
+            if isinstance(hyp, dict) and isinstance(hyp.get("id"), str):
+                if not hyp["id"].startswith(f"{unit_id}-H"):
+                    problems.append(f"{unit_id}: hypothesis id {hyp['id']} must use prefix {unit_id}-H<n>")
+
+        recon = unit.get("reconciliations")
+        if not isinstance(recon, list):
+            if data.get("hypotheses"):
+                problems.append(f"{unit_id}: hypotheses exist but reconciliations is missing")
+            continue
+        by_hyp = {r.get("hypothesisId"): r for r in recon if isinstance(r, dict)}
+        for hyp in data.get("hypotheses") or []:
+            if not isinstance(hyp, dict):
+                continue
+            hid = hyp.get("id")
+            entry = by_hyp.get(hid)
+            if entry is None:
+                problems.append(f"{unit_id}: hypothesis {hid} has no reconciliation entry")
+                continue
+            want = RECOMMENDATION_TO_RESULT.get(hyp.get("recommendation")) \
+                if isinstance(hyp.get("recommendation"), str) else None
+            if want and entry.get("result") != want:
+                problems.append(
+                    f"{unit_id}: {hid} recommendation={hyp.get('recommendation')} "
+                    f"but result={entry.get('result')} (expected {want})"
+                )
+            if entry.get("result") == "FINDING":
+                fid = entry.get("findingId")
+                if fid not in finding_by_id:
+                    problems.append(f"{unit_id}: {hid} points at unknown finding {fid!r}")
+                else:
+                    promoted_to[fid].add(hid)
+            for ref in entry.get("evidenceRefs") or []:
+                if isinstance(ref, str) and ref not in local_evidence:
+                    problems.append(f"{unit_id}: reconciliation evidence {ref} is not in {relative}")
+
+    # 3. sourceHypotheses mirrors the FINDING reconciliations
+    for fid, finding in finding_by_id.items():
+        declared = set(finding.get("sourceHypotheses") or [])
+        incoming = promoted_to.get(fid, set())
+        if declared != incoming:
+            problems.append(
+                f"{fid}: sourceHypotheses does not mirror FINDING reconciliations "
+                f"(missing={sorted(incoming - declared)}, extra={sorted(declared - incoming)})"
+            )
+
+    # 4. verification files agree with their finding
+    for fid, finding in finding_by_id.items():
+        relative = finding.get("verificationFile")
+        if not isinstance(relative, str):
+            continue
+        path = resolve_inside(state_dir, relative)
+        if not path.is_file():
+            continue
+        data = load_json(path)
+        if not isinstance(data, dict):
+            continue
+        if data.get("findingId") != fid:
+            problems.append(f"{relative}: findingId {data.get('findingId')!r} != {fid}")
+        method = finding.get("verificationMethod")
+        if isinstance(method, str) and data.get("method") != method:
+            problems.append(f"{relative}: method {data.get('method')!r} != verificationMethod {method!r}")
+        for ev in data.get("evidence") or []:
+            if isinstance(ev, dict) and isinstance(ev.get("id"), str):
+                if not ev["id"].startswith(f"{fid}-E"):
+                    problems.append(f"{relative}: evidence id {ev['id']} must use prefix {fid}-E<n>")
+
+    if not problems:
+        print(f"no mechanical problems found in {state_dir}")
+        return 0
+    print(f"{len(problems)} mechanical problem(s) in {state_dir}:")
+    for item in problems:
+        print(f"  - {item}")
+    print()
+    print("these are mechanical only; semantic legality is decided by validate_audit_state.py")
+    return 1
+
+
+# --------------------------------------------------------------------------
+# verify
+# --------------------------------------------------------------------------
 
 
 def cmd_verify(args: argparse.Namespace) -> int:
@@ -168,6 +415,11 @@ def cmd_verify(args: argparse.Namespace) -> int:
     from validate_audit_state import main as validator_main  # noqa: PLC0415
 
     return validator_main([str(Path(args.state_dir))])
+
+
+# --------------------------------------------------------------------------
+# cli
+# --------------------------------------------------------------------------
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -193,10 +445,17 @@ def build_parser() -> argparse.ArgumentParser:
     p_init.add_argument("--force", action="store_true", help="overwrite an existing state.json")
     p_init.set_defaults(func=cmd_init)
 
-    p_bind = sub.add_parser("bind", help="stamp or verify auditBinding on an artifact JSON")
+    p_bind = sub.add_parser("bind", help="stamp or verify auditBinding on artifact JSON")
     p_bind.add_argument("state_dir")
-    p_bind.add_argument("--artifact", required=True, help="investigations/ or verification/ JSON file")
+    p_bind.add_argument("--artifact", help="stamp only this file; default: every artifact state.json references")
+    p_bind.add_argument("--check", action="store_true", help="report only; do not modify files")
+    p_bind.add_argument("--force", action="store_true",
+                        help="overwrite a mismatched binding (the artifact should normally be re-gathered instead)")
     p_bind.set_defaults(func=cmd_bind)
+
+    p_lint = sub.add_parser("lint", help="report mechanical inconsistencies (read-only)")
+    p_lint.add_argument("state_dir")
+    p_lint.set_defaults(func=cmd_lint)
 
     p_verify = sub.add_parser("verify", help="run the validator against an audit instance")
     p_verify.add_argument("state_dir")

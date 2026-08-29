@@ -544,7 +544,7 @@ Critical/High Finding 写 `disposition=RESOLVED-VERIFIED` 时，必须在同一 
 
 - 调查者先通过平台消息或 state root 外的批准临时位置交付完整 JSON；主代理先在 state root 外保留 staged 原件，并在隔离副本中把 canonical artifact 与 proposed `state.json` 组合后运行 validator。发布顺序固定为：原子创建 canonical artifact，再原子替换 `state.json` 作为 commit record；禁止 state-first，避免 dangling reference。两步之间中断只可能留下 unreferenced artifact：恢复时不消费它，先核对其 binding/unit/method 与仍保留的 staged hash，把它移动到 state-root 外 quarantine 后恢复旧合法 state，再从 staged 原件重试；无法唯一匹配时保留现场并请求决定。完成后才删除 staging/quarantine。不要到收尾时一次性把 planned 补成 verified。
 - 每次 material 接收事务达到稳定态后运行 validator；它不用于调查者正在写文件、尚未被 state 接收的中间时刻。FAIL 时不得生成强于当前合法状态的报告或 Gate。
-- 可选的 `scripts/audit_state_helper.py bind <dir>` 可在每份 artifact 落盘后把 `audit.id` / `audit.snapshot` 传播成它的 `auditBinding`，省去逐文件手写；`lint <dir>` 只读地报告 id 前缀、`reconciliations` 与 hypotheses 的镜像关系等机械问题，适合在 validator 之前先跑一遍。两者都不做语义判断，也不替代 validator。
+- 可选的 `scripts/audit_state.py bind <dir>` 可在每份 artifact 落盘后把 `audit.id` / `audit.snapshot` 传播成它的 `auditBinding`，省去逐文件手写；`lint <dir>` 只读地报告 id 前缀、`reconciliations` 与 hypotheses 的镜像关系等机械问题，适合在 validator 之前先跑一遍。两者都不做语义判断，也不替代 validator。注意 `bind` 遇到**已存在但不匹配**的 binding 会拒绝覆盖（该证据属于另一次审计，须重新取证），只有 `--force` 例外。
 - target、snapshot、scope、objectives、决策问题或权威 shared facts 发生契约外实质变化时，按 §3.1 接替整个审计实例；不分“还是同一问题”而在原 state 里重开。事先声明的 audit-and-fix 转换按前段执行。
 - 恢复时先检查闭合布局：若只有 unreferenced investigation/verification artifact，按上一条的 quarantine 规则恢复；除此之外再读取 state.json 并验证 schemaVersion、audit id、target/snapshot/scope 和所有引用文件。旧式 Markdown 状态不自动迁移。冲突实例无法唯一识别时呈现候选并请求决定，不覆盖或删除。
 - `reported` Unit 只在 artifact 的 auditBinding 匹配当前实例时读取已有 investigation 后继续主代理核对；`PENDING` Finding 继续反证和直接复核；修复流程从 `state.json.fixWorkflow` 恢复未结束 batch，不从派生 fix-map 猜状态。
