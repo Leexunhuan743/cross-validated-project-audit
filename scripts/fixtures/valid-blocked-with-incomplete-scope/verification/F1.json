@@ -1,0 +1,18 @@
+{
+  "auditBinding": {"auditId": "blocked-001", "snapshot": {"kind": "other", "identity": "blocked-candidate-2026-08-22"}},
+  "findingId": "F1",
+  "method": "adversarial-challenge",
+  "checkedEvidence": ["R1-E1"],
+  "evidence": [
+    {"id": "F1-E1", "polarity": "supports", "strength": "ES3", "reproducibility": "repeatable", "source": "main-agent isolated reproduction", "observation": "the output path resolves outside the configured root"}
+  ],
+  "challenge": {
+    "status": "COMPLETED",
+    "mode": "EQUIVALENT-DIRECT-DISCONFIRMATION",
+    "method": "adversarial-challenge",
+    "evidenceRefs": ["F1-E1"],
+    "result": "counter-refuted"
+  },
+  "conclusion": "the traversal is confirmed and blocks release",
+  "limits": ["legacy compatibility remains unverified"]
+}

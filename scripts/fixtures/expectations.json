@@ -1,0 +1,12 @@
+{
+  "_note": "本文件只是 `validate_audit_state.py --self-test` 的轻量 fixture 自测清单：仅记录每个 invalid-* 目录必须出现的预期错误片段，用于快速 sanity check。它不表示完整测试覆盖——完整的协议不变量覆盖由 scripts/test_validate_audit_state.py（90 个 unittest，含 mutation 测试）提供。新增 fixture 时，valid-* 无需在此登记，invalid-* 只需在此列出至少一条预期错误片段。",
+  "invalid-disposition-combination": [
+    "explicit disposition is allowed only for CONFIRMED findings"
+  ],
+  "invalid-empty-gate-coverage": [
+    "declared READY, but state derives INCOMPLETE"
+  ],
+  "invalid-ready-with-insufficient-evidence": [
+    "declared READY, but state derives INCOMPLETE"
+  ]
+}

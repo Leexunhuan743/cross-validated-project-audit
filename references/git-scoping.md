@@ -44,12 +44,12 @@ shallow clone 或缺对象导致 `merge-base` 失败时，回退到平台 PR 元
 
 ## Git 范围解析协议
 
-Git 场景直接应用主流程的 Scope Resolution Protocol；本模块只负责把候选范围解析成可核对的不可变 commit，并提供 Git 特有的范围摘要。对“最近的提交/最近改的代码/近期 PR/这个作者最近的提交”等模糊请求：
+Git 场景直接应用 [主流程的 Scope Resolution Protocol](../SKILL.md#scope-resolution-protocol)；本模块只负责把候选范围解析成可核对的不可变 commit，并提供 Git 特有的范围摘要。对“最近的提交/最近改的代码/近期 PR/这个作者最近的提交”等模糊请求：
 
 - 先枚举最少数量的**自然候选范围**，不要静默选择“最近 5 个/7 天”等任意数字；
 - 若候选范围会实质改变 Finding、Provenance、Gate 或明显漏掉用户关心的开发序列，先询问；
 - 询问前给出每个候选范围的 commit 数量、起止时间和简短主题摘要，让用户知道这些 commits 主要做了什么；
-- 若不同合理范围不会改变核心结论，可采用最小可辩护范围并写 `scopeBasis=ASSUMED`、相应 `scopeConfidence` 与 `scopeAssumption`。
+- 若不同合理范围不会改变核心结论，可采用最小可辩护范围，并写 `audit.scopeResolution={basis:"ASSUMED", confidence:<HIGH|MEDIUM|LOW>, assumption:"..."}`。
 
 只读摘要示例：
 
@@ -96,7 +96,7 @@ git log --oneline --reverse <base>..<head>
 git diff <base>...<head>
 ```
 
-历史范围与当前状态必须分开：一个 Finding 可以在范围内真实成立、又在后续提交中被修复/revert/supersede。此时保留其历史 Decision 与 Provenance；只有 DIRECT Evidence 证明它在本审计唯一权威 target/state snapshot 中已消失，才把 Disposition 记为 `RESOLVED-VERIFIED`；存在真实 Gate 时，还必须把它对所有相关请求 Gate 的 applicability 写为 `DOES-NOT-APPLY`。若当前状态对 `RELEASE` / `SYSTEM` 或目标变更的安全集成有决定性影响却无法验证，收集并返回 current-state Evidence 缺口，由主代理在 Finding 的 Gate applicability 中写 `UNRESOLVED`；不把历史成立或历史修复直接外推到其它当前状态。需要评估不同 `head`、release candidate 或部署状态时，分别建立审计实例。
+历史范围与当前状态必须分开：一个 Finding 可以在范围内真实成立、又在后续提交中被修复/revert/supersede。此时保留其历史 Decision 与 Provenance；只有 DIRECT Evidence 证明它在本审计唯一权威 target/state snapshot 中已消失，才把 Disposition 记为 `RESOLVED-VERIFIED`；存在真实 Gate 时，还必须把它对所有相关请求 Gate 的 applicability 写为 `DOES-NOT-APPLY`。若当前状态对 `RELEASE` / `SYSTEM` 或目标变更的安全集成有决定性影响却无法验证，收集并返回 current-state Evidence 缺口，由主代理在 Finding 的 Gate applicability 中写 `UNRESOLVED`；不把历史成立或历史修复直接外推到其它当前状态。需要评估不同 `head`、release candidate 或部署状态时，每个不可变状态分别建立审计实例；若新状态取代正在工作的旧状态，按 [audit-ledger.md](audit-ledger.md) 的双向 supersession 链冻结旧实例，不在原 state 中替换 `snapshot.head`。
 
 merge commit 先确定用户要审计合并结果、某一父分支增量还是冲突解决：
 
@@ -140,6 +140,8 @@ git worktree list --porcelain
 ```
 
 `git diff` 不含未跟踪文件。若用户要求“全部本地修改”，读取相关未跟踪文件，但不自动加入、删除或改名。多 worktree 的分支、HEAD 和脏状态相互独立；所有命令都从目标 worktree 运行。
+
+需要用 `snapshot.kind=git-worktree` 固定未提交 PRE/POST 状态时，两个时点必须使用同一 scope 与排除规则生成确定性 manifest：按规范化相对路径排序，逐项记录 tracked/staged/unstaged/untracked/deleted 类型、文件模式或链接类型、内容 SHA-256，并记录排除项及原因；manifest 自身以 UTF-8 LF 序列化后计算 SHA-256。不得跟随 symlink/junction 读取 scope 外内容，不读取 `.env`/凭据或项目明确排除的生成目录，也不得用 `git add`、临时 commit 或写 object database 来换取身份。PRE/POST HEAD 分别记录在 snapshot 的 `base/head`，即使二者相同，`initialSha256/finalSha256` 仍可证明未提交内容的实际转换。manifest 生成后再次检查 scope 文件状态；发生外部漂移时重新固定或接替审计，不能沿用旧 hash。
 
 ## squash、rebase 与 cherry-pick 等价性
 

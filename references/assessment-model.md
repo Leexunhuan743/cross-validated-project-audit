@@ -21,7 +21,7 @@ Result: counter-supported / counter-refuted / unresolved
 - `counter-supported`：原 H 应关闭或缩窄后重新表述；缩窄后若仍 material，按新的 H 重新完成 disconfirmation，不得直接提升为 Finding。
 - `counter-refuted`：可继续提升，但仍保留找到的 limiting Evidence。
 - `unresolved`：优先保留为 residual gap；若已有足够 Evidence 使其仍值得规范化为 Finding，必须显式保留未解条件，Decision 不得写 `CONFIRMED`，并相应降低 Confidence 而不是降低 Severity。
-- 暂定 Severity 为 Critical/High 的 Finding 在 Decision 定稿前必须尝试第二种异质 archetype 的挑战或等价直接反证搜索；只有完成该要求且 Evidence 足够时才可 `CONFIRMED`。做不到时保留验证缺口并在 Decision/相关 Gate 中体现；普通 Finding 不要求为了形式额外派代理，但仍必须有上述最小 disconfirmation 记录。
+- 暂定 Severity 为 Critical/High 的非 REJECTED Finding 在 Decision 定稿前必须尝试第二种异质 archetype 的挑战或等价直接反证搜索，并按 [audit-ledger.md](audit-ledger.md) 的 `verification/F<n>.json.challenge` 结构留存。异质模式引用真实 verified Unit，等价模式引用主 verification 新 Evidence。`CONFIRMED` 和 `NEEDS-DECISION` 必须是已完成的 `counter-refuted`；做不到只能 `CONDITIONAL + challenge GAP`。已完成的 `counter-supported` 不能维持原 CONDITIONAL Finding，应关闭或缩窄后重建。普通 Finding 不要求为了形式额外派代理，但仍必须有上述最小 disconfirmation 记录。修复后的 current-state 验收使用独立的 `resolutionChallenge`，不复用 Decision challenge。
 
 ## 2. Finding 风险评估维度
 
@@ -42,7 +42,7 @@ Severity 先以 `Impact` 为基线，再只允许以下有限修正，避免每�
 2. 当 `Likelihood=Low` 且（`Reachability=Privileged` 或 `Recoverability=Automatic`）时，可下调一级；必须写明为什么现实风险显著受限。
 3. 当 `Likelihood=High`、`Reachability=Common`、`Recoverability=Irreversible` 同时成立时，可上调一级，最高为 `Critical`。
 4. 现实可达的安全边界绕过、严重数据丢失或大范围不可恢复故障不得仅因“触发不常见”降到 Medium/Low。
-5. 任何偏离上述映射的 Severity 必须在 Decision rationale 中写明特殊原因。
+5. 映射是闭合的：除第 2/3 条给出的一个相邻等级外，不允许其它上调或降级。Severity 与 Impact 不同时，Finding 必须写非空 `severityRationale`，说明实际满足的有限条件；不得用自由文本越过映射。
 
 **禁止把 Confidence 用作 Severity 修正项。** 例如“如果为真是 Critical，但证据还弱”应表达为 `Severity=Critical, Confidence=Low/Medium, Decision=CONDITIONAL`，而不是把 Severity 偷偷降成 Medium。
 
@@ -60,8 +60,8 @@ Confidence 是 Finding 的一等属性，回答“我们有多确定这条 Findi
 约束：
 
 - `CONFIRMED` 要求 `Confidence ∈ {High, Very-High}`；因事实/环境/验证证据不足而达不到时使用 `CONDITIONAL` 或保留 residual gap；只有事实已足够、剩余的是授权取舍时才使用 `NEEDS-DECISION`。不要通过降低 Severity 假装确定。
-- `REJECTED` 表示主代理认为 Finding 不成立，Confidence 字段写 `—`；反驳强度由 Decision rationale 和 refuting Evidence 表达。
-- Confidence 变化是实质 Decision 元数据变化，必须进入变更记录。
+- `REJECTED` 表示主代理认为 Finding 不成立，省略 risk、Severity、Confidence 和 Disposition；反驳强度由 disconfirmation、refuting Evidence 和主验证结论表达。它不是单纯标签：必须保留原 supporting 历史，并由该 Finding 的 verification 文件新产生至少一条被 `refutingEvidence` 引用的 DIRECT `refutes` Evidence。
+- Confidence 变化是实质 Decision 元数据变化，必须在该 Finding 的 `decisionHistory[]` 追加一条记录（字段结构见 [audit-ledger.md](audit-ledger.md) §3.5）。改判前的值只留在历史条目里，不得再作为当前值参与 Gate 或报告。
 
 ## 4. Evidence Strength 与可复现性
 
@@ -104,7 +104,7 @@ Resolution: resolved-supporting / resolved-refuting / narrowed / unresolved
 
 规则：
 
-- 记录位置沿用现有状态层：Finding 形成前写在对应 investigation 的 reasoning/disconfirmation 附近；Finding 已形成则写入 `verification/F<n>.md` 并引用双方 Evidence ID，不新增第二套账本字段。
+- 记录位置沿用现有状态层：Finding 形成前写在对应 investigation JSON 的 reasoning/disconfirmation；Finding 已形成则写入 `verification/F<n>.json` 并引用双方 Evidence ID，不新增平行 live 字段。
 - 优先选择最小、低副作用、最贴近目标公共路径的判别方法；不要为了“第三票”重复同一 archetype。
 - `resolved-supporting`：保留支持方向，但不自动等于 `CONFIRMED`，仍按完整 Decision 条件裁决。
 - `resolved-refuting`：Finding 形成前关闭或缩窄原 Hypothesis；Finding 已形成时必须重新评估 Decision，反证足以否定主张时改为 `REJECTED`。
@@ -114,7 +114,7 @@ Resolution: resolved-supporting / resolved-refuting / narrowed / unresolved
 
 ## 5. Provenance：区分变更风险与现存风险
 
-Provenance 只在任务需要判断“风险与某个可比较变更/提交范围的关系”时填写；不涉及变更归因的全项目/静态工件审计写 `—`。需要归因但当前历史/基线 Evidence 不足时才写 `UNKNOWN`。Provenance 回答“这个风险与目标变更是什么关系”，**不表示责任归属，也不改变 Severity/Confidence**。
+Provenance 只在任务需要判断“风险与某个可比较变更/提交范围的关系”时创建；不涉及变更归因时省略字段。需要归因但当前历史/基线 Evidence 不足时才写 `UNKNOWN`。Provenance 回答“这个风险与目标变更是什么关系”，**不表示责任归属，也不改变 Severity/Confidence**。
 
 | Provenance | 判定标准 |
 |---|---|
@@ -131,11 +131,11 @@ Provenance 只在任务需要判断“风险与某个可比较变更/提交范�
 - `EXPOSED` 必须说明“既有根因 + 本次变更新增的可达/影响增量”；不能把纯既有问题包装成本次引入。
 - 作者提交审计中的 Provenance 只描述目标提交集合与风险的技术关系，不等于个人责任结论。
 - 历史范围中确认成立的 Finding，不因后续提交已修复、revert 或 supersede 而改成 `REJECTED`，也不改写原 Provenance。只有 DIRECT Evidence 验证该 Finding 在本审计唯一权威 target/state snapshot 中不再适用，才保持 Decision=`CONFIRMED` 与原 Provenance、把 Disposition 设为 `RESOLVED-VERIFIED` 并记录 resolution Evidence；存在真实 Gate 时，还必须把该 Finding 对所有相关请求 Gate 的 applicability 写为 `DOES-NOT-APPLY`。若当前适用性对 `RELEASE` / `SYSTEM`（或 `CHANGE` 的安全集成）重要但尚未验证，不得假设已修复，应保留相应 current-state Evidence 缺口，由主代理在 Finding 的 Gate applicability 中显式标记未决，再交 Gate 层处理。不同版本、候选或部署状态必须拆成独立审计实例。
-- 归因适用但无法证明时写 `UNKNOWN`，不要为了报告整齐猜测归因；归因本身不适用时写 `—`，不得用 `UNKNOWN` 伪装“不适用”。
+- 归因适用但无法证明时写 `UNKNOWN`，不要为了报告整齐猜测归因；归因本身不适用时省略，不得用 `UNKNOWN` 伪装“不适用”。
 
 ## 6. Decision 语义与最小检查
 
-最终 Decision 只使用以下四值；`PENDING` 只是 ledger 的临时工作状态，不是最终 Decision：
+最终 Decision 只使用以下四值；`PENDING` 只是 `state.json` 的临时工作状态，不是最终 Decision：
 
 | Decision | 语义 |
 |---|---|
@@ -151,4 +151,4 @@ Provenance 只在任务需要判断“风险与某个可比较变更/提交范�
 3. 适用变更归因的场景已填写 Provenance，并有 DIRECT Evidence 支撑；
 4. Severity 按 §2 映射并与 Confidence 分离；
 5. 非 `REJECTED` Finding 已填写 Confidence，且与当前最高质量、冲突和反证 Evidence 相称；
-6. 暂定 Severity 为 Critical/High 的 Finding 在最终 Decision 前已尝试第二种异质 archetype 的挑战或等价直接反证；只有挑战完成且 Evidence 足够时才可 `CONFIRMED`。无法完成或仍有决定性事实/环境缺口时，Finding 使用 `CONDITIONAL`；若事实已足够而剩余的是授权取舍，使用 `NEEDS-DECISION`；关键缺口足以影响阻断判断时由 gate 层映射为 `INCOMPLETE`。
+6. 暂定 Severity 为 Critical/High 的非 REJECTED Finding 在最终 Decision 前已把第二种异质 archetype 挑战或等价直接反证记录到 verification challenge，并满足 Unit/Evidence 来源约束；`CONFIRMED` / `NEEDS-DECISION` 仅允许已完成的 `counter-refuted`。无法完成时使用 `CONDITIONAL + GAP`；已完成但 `counter-supported` 时关闭或缩窄原 Finding，不使用 CONDITIONAL 拖延。若其 Disposition 为 `RESOLVED-VERIFIED`，还必须有不同方法 verified Unit 支撑的 `resolutionChallenge=resolution-supported`。关键缺口足以影响阻断判断时由 gate 层映射为 `INCOMPLETE`。

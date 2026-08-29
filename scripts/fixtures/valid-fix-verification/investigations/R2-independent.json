@@ -1,0 +1,37 @@
+{
+  "auditBinding": {"auditId": "fix-001", "snapshot": {"kind": "other", "identity": "fixed-parser-snapshot-2026-08-22"}},
+  "unitId": "R2",
+  "claimId": "Q1",
+  "method": "implementation-trace",
+  "hypotheses": [
+    {
+      "id": "R2-H1",
+      "statement": "the fixed snapshot can still reach the oversized copy",
+      "potentialImpact": "memory corruption remains reachable",
+      "conditions": "oversized input against the fixed parser",
+      "counterHypothesis": "the fixed guard rejects the input before the copy",
+      "expectedSafeBehavior": "all oversized paths terminate at the new guard",
+      "evidenceSearched": "fixed caller, guard and copy path",
+      "disconfirmationResult": "counter-supported",
+      "evidenceRefs": ["R2-E1"],
+      "result": "refuted",
+      "recommendation": "close",
+      "reasoning": "the independent implementation trace reaches the rejection branch before the copy"
+    }
+  ],
+  "evidence": [
+    {
+      "id": "R2-E1",
+      "polarity": "refutes",
+      "strength": "ES2",
+      "reproducibility": "not-applicable",
+      "source": "independent fixed-snapshot implementation trace",
+      "observation": "the oversized path terminates at the length guard before the copy"
+    }
+  ],
+  "coverageSummary": {
+    "checked": ["fixed caller, guard and copy path"],
+    "verifiedBehaviors": ["the old overflow path is unreachable in the bound snapshot"],
+    "gaps": []
+  }
+}

@@ -1,0 +1,59 @@
+{
+  "schemaVersion": 2,
+  "phase": "FINAL",
+  "audit": {
+    "id": "invalid-disposition-001",
+    "target": "workspace",
+    "scope": "configuration",
+    "objectives": ["identify deployment risks"],
+    "availableEvidence": ["configuration"],
+    "deliverable": "finding report",
+    "scopeMode": "change",
+    "objectiveProfiles": ["general"],
+    "executionMode": "audit-only",
+    "scopeResolution": {"basis": "USER", "confidence": "HIGH"},
+    "snapshot": {"kind": "other", "identity": "invalid-disposition-fixture-v1"},
+    "startedAt": "2026-08-22T00:00:00Z",
+    "updatedAt": "2026-08-22T00:05:00Z"
+  },
+  "sharedFacts": [],
+  "claims": [
+    {"id": "Q1", "obligation": "REQUIRED", "riskArea": "delivery", "statement": "deployment config is complete", "consequence": "deployment fails", "priority": "normal", "scope": "deploy.json"}
+  ],
+  "verificationUnits": [
+    {
+      "id": "R1",
+      "claimId": "Q1",
+      "method": "contract-spec-verification",
+      "executor": "main",
+      "status": "verified",
+      "investigationFile": "investigations/R1-main.json",
+      "reconciliations": [
+        {"hypothesisId": "R1-H1", "result": "FINDING", "findingId": "F1", "evidenceRefs": ["R1-E1"]}
+      ]
+    }
+  ],
+  "findings": [
+    {
+      "id": "F1",
+      "statement": "the deployment target is not documented",
+      "locations": ["deploy.json:1"],
+      "causeImpact": "the target environment cannot be determined",
+      "conditions": "deployment is attempted",
+      "sourceHypotheses": ["R1-H1"],
+      "supportingEvidence": ["R1-E1", "F1-E1"],
+      "refutingEvidence": [],
+      "disconfirmation": {"counterHypothesis": "the platform supplies the target", "evidenceSearched": "platform metadata", "result": "unresolved"},
+      "risk": {"impact": "Medium", "likelihood": "Medium", "reachability": "Common", "recoverability": "Manual"},
+      "decision": "CONDITIONAL",
+      "severity": "Medium",
+      "confidence": "Medium",
+      "disposition": "REMEDIATING",
+      "verificationMethod": "contract-spec-verification",
+      "patternScope": "UNKNOWN",
+      "verificationFile": "verification/F1.json",
+      "exitCriteria": "the authoritative target is identified"
+    }
+  ],
+  "residualRisks": []
+}

@@ -1,122 +1,132 @@
-# 审计报告与门禁
+# 审计报告与 Gate
 
-在输出最终审计结果前读取本文件。报告按 **Finding → Decision** 聚合，不按代理、Hypothesis 或 Evidence 条目逐份倾倒。默认采用两层输出：先给可直接做发布/合并/整改决策的 **Executive report**，再给可追溯的 **Audit appendix**；用户不应先读 ledger 才知道能不能发布。
+最终报告按 Finding → Decision 聚合，不按代理或 H/E 条目倾倒。Finding、Decision、Gate、Disposition 和其它 live 结论字段只从最终 `state.json` 读取；investigation/verification JSON 不能覆盖这些状态。用户可见的“已验证正确行为”只能从 `state.json` 引用且状态为 verified 的 Unit 对应 `coverageSummary.verifiedBehaviors` 读取，并必须能回指同一 artifact 中的 DIRECT Evidence；不得从 Claim statement 或未 verified artifact 自行推导。
 
-先读取 `audit.md` 的任务契约。用户明确指定的 Deliverable 永远优先；未指定时：要求发布/合并/gate → 门禁报告；`objectiveProfile` 含 `fix-verification` → 修复验证报告；其余 → 问题报告。追溯附录只在用户要求或 §3 条件触发时展开。
+`phase=SUPERSEDED` 的 state 只能作为历史附录或接替链证据，不生成当前 Findings、当前 Gate 或 clean conclusion。最终报告必须绑定新 FINAL 实例的 auditId、target 和不可变 snapshot。
 
-## 0. Deliverable 契约
+## 1. 输出结构
 
-| Deliverable | 最低必须包含 |
+先读 `audit.deliverable`。用户格式优先；默认两层：
+
+不同交付物即使采用用户自定义版式，也至少保留以下内容：
+
+| Deliverable | 最低内容 |
 |---|---|
-| 门禁报告 | Executive：每个请求 gate target 的 Gate + Top risks + Required actions + Residual uncertainty；Appendix：范围/基线 + Findings/Decision + coverage/evidence 索引 |
-| 问题报告 | Executive：Top risks + Required actions/建议 + Residual uncertainty；Appendix：范围/基线 + Findings/Decision + 已验证正确 + coverage/evidence 索引 |
-| 修复验证报告 | Executive：修复是否通过 + 未解除风险 + Required actions + Residual uncertainty；Appendix：原 Finding → Disposition → 验证 Evidence + 漏修/新回归 |
-| 追溯报告 | 对应基础报告 + 完整 Audit appendix（ledger、Evidence、coverage、investigations、probes/commit matrix 索引） |
-| 用户自定义 | 满足用户字段，同时至少披露实际范围、关键 Evidence 与 residual risks |
-
-单一数据源规则：
-
-1. `findings/F<n>.md` 提供 Finding statement、位置/范围、Provenance、影响链、触发条件、disconfirmation、Impact/Likelihood/Reachability/Recoverability、Severity mapping、Gate applicability、适用时的 target-specific Gate treatment 与 H/E 引用；
-2. `ledger.md` 提供 Decision、最终 Severity、Confidence、主验证方法、Disposition、模式范围和 Decision rationale；
-3. coverage 只从 `audit.md.coverageLocation` 指向的唯一权威位置读取：独立 `coverage.md` 或 `audit.md` 的 Embedded coverage；两种存储方式使用同一 `Claim ID / Obligation / Exploration round / Risk priority / Sufficiency / Judgment isolation / H→F|refuted|gap / Gate-target` 语义；Gate 只把 `REQUIRED` 单元作为完成义务；
-4. `investigations/` 只用于追溯 Hypothesis/Evidence，不直接生成最终问题结论。
-
-## 1. 默认输出：Executive report + Audit appendix
+| Gate 报告 | 每个请求 target 的 Gate、Top risks、Required actions、Residual uncertainty，以及范围/snapshot 与决定性 Q/F/G 依据 |
+| 问题报告 | Findings、已验证正确行为、Required actions/Recommendations、Residual uncertainty，以及范围/snapshot 与关键 Evidence 索引 |
+| 修复验证报告 | 每个原 Finding 的 Decision/Disposition、修复或接受状态、resolution Evidence；另列漏修实例、新回归、未通过批次和未解除风险 |
+| 追溯报告 | 对应基础报告，加完整 `Claim → Unit → H → E → F → Decision` 索引和实际存在的 investigation/verification/fix 工件 |
+| 用户自定义 | 满足用户字段，同时至少披露实际范围、snapshot、关键 Evidence、已知限制和 material residual risks |
 
 ### Executive report
 
-默认只保留决策需要的信息，顺序固定：
-
-1. **Gates / Decision**：`gateTargets != NONE` 时逐项给 `Change Gate` / `Release Gate` / `System Gate` 的 `READY` / `READY-WITH-CONDITIONS` / `BLOCKED` / `INCOMPLETE` + 一句理由；同一审计可同时出现不同结果，不折叠成一个最坏值。`gateTargets=NONE` 时写“Gate：未请求”，不自行制造放行结论。
-2. **Top risks（最多 3 项）**：优先 Critical/High，再按对请求 Gate/用户影响与 Confidence 排序；每项只写 F id、短标题、Severity/Confidence、Provenance 和一句现实影响；有多个 `gateTargets` 时附受影响 Gate 标签。
-3. **Required actions**：只列解除 BLOCKED/INCOMPLETE 或满足用户明确验收所必须完成的动作及退出条件。
-4. **Recommendations**：不阻断当前门禁但值得处理的 `PRE_EXISTING` 风险、Medium/Low Finding 或改进项；没有则省略。
-5. **Residual uncertainty**：未验证平台/环境、关键 Evidence/coverage gap、停止原因和 residual risks；在实际需要变更归因的审计中，可能改变重要结论的 `UNKNOWN` Provenance 也列在这里。
-
-不要在 Executive report 倾倒完整 ledger、代理过程、命令日志或所有 Low Finding。用户先看到“能不能合并/发布、最大风险、必须做什么、还不知道什么”。
+1. **Gates / Decision**：只有 `audit.gates` 存在时，逐 target 给结果和一句依据；无 Gate 时直接给审计结论，不写“Gate 未请求”占版面。
+2. **Top risks**：最多三项，按 Severity、Gate/用户影响和 Confidence 排序；写 F id、短标题、Severity/Confidence、现实影响，适用时写 Provenance 和受影响 Gate。
+3. **Required actions**：只列解除 BLOCKED/INCOMPLETE 或满足用户明确验收所必需的动作和退出条件。
+4. **Recommendations**：非阻断的 Medium/Low、PRE_EXISTING 风险和改进项；没有则省略。
+5. **Residual uncertainty**：material residual risk、关键 Evidence/环境缺口、停止原因、validator/持久化/independent validation 限制。
 
 ### Audit appendix
 
-默认给**紧凑可追溯附录**，包含：
+紧凑附录包含：
 
-- 任务契约、scope resolution、状态持久化说明、实际范围、base/head、关键假设/排除项，以及实际达到的异质/independent validation 程度；
-- Findings/Decision 表（含 Provenance、Severity、Confidence、Disposition）；
-- required risk coverage、Sufficiency、异质方法与 independent validation 完成度；
-- 关键 Supporting/Refuting Evidence 索引；
-- investigations、verification、probes、fix-map、commit/author matrix 等实际存在工件的路径/摘要索引。
+- target、snapshot、scope、scope resolution、假设和排除项；
+- Finding / Decision / Severity / Confidence / 条件字段；
+- required Claim、验证方法、Claim-level Sufficiency，以及实际异质/独立验证程度；
+- 关键 Supporting/Refuting Evidence 和存在的 investigation/verification 索引；audit-and-fix 可附由 `state.json.fixWorkflow` 派生的 fix-map，但不得把它当作另一份状态；
+- validator 命令与结果、未执行检查和基线失败。
 
-用户要求“完整追溯/证据链”或 §3 条件触发时，再展开完整 ledger、material H/E 链和必要命令/环境细节；普通报告不复制权威审计状态中的全部调查正文。
-
-## 2. Finding 的报告字段
-
-每个报告 Finding 包含：F id、Finding statement、位置/范围、Provenance、Impact / Likelihood / Reachability / Recoverability、Severity、Confidence、原因→实际影响、触发/适用条件、Disconfirmation summary、关键 Supporting/Refuting Evidence（含 Strength/Reproducibility）、主验证方法、Decision、模式范围、建议修复与可判定退出条件；请求 `gateTargets != NONE` 时直接使用 Finding 中的权威 Gate applicability，以及存在时的 target-specific Gate treatment，不在报告阶段重新推理相关性或重新解析风险接受。最终 Decision / Severity / Confidence 只取 `ledger.md`；调查者的“潜在影响”或局部 result 不得覆盖主代理 Decision。
-
-## 3. 追溯模式
-
-以下情况默认展开：用户要求完整证据链；gate 存在争议；Critical/High Finding 有冲突 Evidence；关键材料/环境/异质方法缺失导致 `INCOMPLETE`。
-
-附录按层级展示：
+用户要求完整追溯、Gate 有争议、Critical/High 存在冲突 Evidence，或关键缺口导致 INCOMPLETE 时，再展开：
 
 ```text
-Risk unit → Hypothesis → Evidence → Finding → Decision
+Claim → Verification Unit → Hypothesis → Evidence → Finding → Decision
 ```
 
-包括：当前状态中的共享事实摘要、权威 coverage、material Hypothesis 的处置映射、Finding 的 H/E 来源、会改变结论的 REJECTED Finding 及反证、与 gate 直接相关的命令/环境/基线失败。普通报告不默认倾倒完整 investigation 正文。
+普通报告不复制完整 state 或 investigation 正文。
 
-## 4. 门禁映射
+## 2. Finding 报告字段
 
-以下是 `Risk tolerance=standard`。非 standard 策略必须派发前归一为可判定附加条件，可按各请求 target 分别定义；同一 target 的多个非 standard 条件若 effect 冲突，必须在审计开始前消解，不得按书写顺序、最近规则或默认宽松原则自动选择。用户可收紧默认条件。非 standard 策略不得将由 Decision 未定、required coverage 未完成、Sufficiency 未满足、关键 Evidence 缺失或 Gate applicability 未解决造成的 `INCOMPLETE` 提升为 `READY` 或 `READY-WITH-CONDITIONS`；它只能改变已充分确定风险的门禁处理。只有风险接受明确覆盖该 Finding 的所有相关请求 Gate 时才使用全局 Disposition `ACCEPTED-RISK`；只接受某一个 Gate 时，Finding 必须显式记录 `Gate treatment=ACCEPTED` 与授权依据并保留实际 Disposition，使其它 Gate 仍按真实风险计算。缺省/未填写 Gate treatment 等价于 `STANDARD`。`ACCEPTED` 只对 Decision=`CONFIRMED` 且 applicability=`APPLIES` 的已知风险生效，不能排除 `PENDING` / `CONDITIONAL` / `NEEDS-DECISION` 或 Evidence/coverage 完整性缺口。套用下表时，只有该 target 明确为 `ACCEPTED` 的 Finding 才从该 target 的阻断/条件集合中排除，并必须在 Executive report 中披露授权依据；不得降低 Severity、Confidence 或改写 Evidence。Confidence 只表示确定度，不直接改变默认 Gate 优先级；关键低 Confidence 风险若 Evidence 不足以裁决，应通过 `CONDITIONAL` / `INCOMPLETE` 表达。
+每个报告 Finding 从 `state.json.findings[]` 读取：
 
-先按 `audit.md.gateTargets` 读取每个非 `REJECTED` Finding 的权威 Gate applicability，再分别套用下表；coverage 单元只影响其 `Gate targets` 列出的请求 Gate。Gate applicability 只使用 `APPLIES` / `DOES-NOT-APPLY` / `UNRESOLVED`：`APPLIES` 表示在本审计唯一权威 target/state snapshot 与 Finding 已声明条件下，该问题会参与该 Gate；`DOES-NOT-APPLY` 表示有足够依据证明它不参与该 Gate；`UNRESOLVED` 表示**相关性或当前适用性本身**缺少决定性 Evidence。Finding 是否真实仍由 Decision 表达，因此 `CONDITIONAL` 不自动等于 `UNRESOLVED`。Risk tolerance/风险接受不能改写 applicability。多个 gate target 共用这一 target/state snapshot；不同版本、候选或部署状态必须拆成独立审计实例。
+- id、statement、locations、causeImpact、conditions；
+- Decision、Severity、Confidence、risk 四维；
+- disconfirmation 摘要和关键 Supporting/Refuting Evidence；
+- verificationMethod、exitCriteria；
+- 只有字段真实存在时才显示 `patternScope`、Provenance、Disposition、Gate applicability/treatment。
 
-- `CHANGE`：判断**目标变更本身**能否接受/合并/安全集成。Finding 的 CHANGE applicability 由以下规则和对应 DIRECT Evidence 在 Finding 中定稿：`INTRODUCED` / `REGRESSED` / `EXPOSED` 默认属于 change-attributable；纯 `PRE_EXISTING` 且未被目标变更扩大/激活的 Finding 仍报告，但默认不单独阻断 CHANGE。若 DIRECT Evidence 证明该既有风险会使目标变更无法安全集成/运行，则它仍与 CHANGE 相关。归因适用时 `UNKNOWN` 且可能改变 Critical/High 的 CHANGE Gate，属于关键归因缺口。
-- `RELEASE`：判断当前 release candidate/目标 head 是否可 ship/deploy。Finding 的 RELEASE applicability 由当前候选状态的 DIRECT Evidence 定稿：Provenance 不决定是否阻断；只要 Finding 在当前候选状态仍适用且 release-relevant，就按风险参与 Gate。历史 Finding 已有 `RESOLVED-VERIFIED` 时不作为当前活动阻断项；若 Critical/High 的当前适用性尚未验证，优先映射 `INCOMPLETE`，不要把历史成立直接当作当前仍存在，也不要假设已修复。
-- `SYSTEM`：判断当前审计系统是否满足约定健康/安全/运行目标。Finding 的 SYSTEM applicability 由 Audit objectives 与当前系统状态 DIRECT Evidence 定稿：与 `RELEASE` 类似，Provenance 不决定是否阻断，但相关性由 Audit objectives 与当前系统状态决定；历史 Finding 只有在当前系统仍适用时才作为活动风险。
-- `NONE`：不计算 Gate；只报告 Findings/Decision 与 residual uncertainty。
+调查者的 potentialImpact、recommendation 或局部 result 不是最终字段。省略的 disposition 在 Gate 计算中等价于 `OPEN`，但普通报告不必专门显示 `OPEN`。
 
-一个 `CONFIRMED` Finding 后来被修复、revert 或 supersede 时，Decision 与 Provenance 保持不变；只有 DIRECT current-state Evidence 证明该 Finding 在本审计唯一权威 target/state snapshot 中不再适用，才可使用 `RESOLVED-VERIFIED`。存在真实 Gate 时，还必须把该 Finding 对所有相关请求 Gate 的 applicability 记录为 `DOES-NOT-APPLY`。若是否已消失尚不能验证，则不能使用 `RESOLVED-VERIFIED`，相应 applicability 写 `UNRESOLVED`；新的 DIRECT Evidence 证明风险仍存在时同样保持或退回 `OPEN` / `REMEDIATING`。多个 gate target 必须分别计算并保存在权威审计状态中，不得自动取“最坏 Gate”覆盖其它结果；不同状态由独立审计实例表达。
+## 3. Gate applicability
 
-coverage 的异质/independent 完整性按 `Claim ID` 分组，不按自由文本或全表总数猜测：同一组至少两个 `REQUIRED` 单元使用不同 archetype 才满足最高风险异质覆盖；只有这两个单元还由不同 executor 完成且各自 `Judgment isolation=ISOLATED` 时才满足 independent validation。`independentValidationRequiredFor=AUDIT` 约束本审计所有最高风险组；值为当前 target 时，约束至少一个单元列出当前 target 的所有最高风险组，且同组用于满足要求的两个单元都必须列出当前 target。显式要求的作用域没有最高风险组，或任一受约束组只披露能力限制，均按缺口处理。
+只有 `audit.gates.targets` 中的 target 才计算 Gate。FINAL 的每个非 REJECTED Finding 必须对每个请求 target 写：
 
-| 优先级 | 条件 | 门禁结论 |
+- `APPLIES`：在当前唯一 target/snapshot 和声明条件下参与该 Gate；
+- `DOES-NOT-APPLY`：有足够 Evidence 证明不参与；
+- `UNRESOLVED`：当前适用性本身缺少决定性 Evidence。
+
+`APPLIES` 和 `DOES-NOT-APPLY` 必须同时写非空 `evidenceRefs`，引用已连接到该 Finding 的 DIRECT Evidence；`basis` 只是人类可读解释。APPLIES 至少需 supports/context，DOES-NOT-APPLY 至少需 refutes/context current-state Evidence；RESOLVED-VERIFIED 的每个 target 还必须引用 resolutionEvidence。`UNRESOLVED` 不得伪造确定性 Evidence。
+
+Finding 是否真实由 Decision 表达；是否参与某个决策问题由 applicability 表达。Gate 阈值和风险接受不能改写二者。
+
+- `CHANGE`：判断目标变更能否接受/合并/安全集成。INTRODUCED / REGRESSED / EXPOSED 通常相关；纯 PRE_EXISTING 默认不单独阻断，除非 Evidence 表明目标变更依赖或扩大了它。
+- `RELEASE`：判断当前候选能否发布。当前是否仍适用决定相关性，Provenance 不决定放行。
+- `SYSTEM`：判断当前系统是否满足约定健康/安全目标。由 objectives 和当前状态 Evidence 决定。
+
+只有 target/snapshot 本身承诺包含某个 artifact 时，“路径不存在”才可直接形成缺包 Finding；artifact 只是没有随审计输入提供时，应记录 Evidence gap/residual risk，不得外推为 release distribution 缺陷。
+
+`RESOLVED-VERIFIED` 要求 DIRECT current-state Evidence；有 Gate 时所有相关 applicability 必须为 DOES-NOT-APPLY。无法验证风险是否消失时不能使用该 Disposition。
+
+## 4. Gate 算法
+
+对每个 target 独立计算。Claim 只在自身 `gateTargets` 包含当前 target 时参与完整性判断；Finding 只在当前 target applicability 为 APPLIES/UNRESOLVED 时参与；Residual risk 只在 `affectsGates` 包含当前 target 时参与，省略该字段表示仅在报告中披露、不参与任何 Gate。默认 `blockAtOrAbove=High`；用户只可按 target 设为 `Medium|Low` 以收紧阈值。其它完成要求必须转成 REQUIRED Claim，无法归一时结果为 INCOMPLETE。
+
+按下列优先级取第一个命中项：
+
+| 优先级 | 条件 | 结果 |
 |---|---|---|
-| 1 | 存在 Gate applicability=`APPLIES`、Decision=`CONFIRMED` 且 Severity=Critical/High、Disposition 为 `OPEN` / `REMEDIATING` 的 Finding | `BLOCKED` |
-| 2 | 非 `REJECTED` Finding 对当前 target 的 Gate applicability=`UNRESOLVED` 且若适用可能形成 Critical/High 阻断；或 Finding 仍为 Decision=`PENDING` 且该 target 的 Gate applicability!=`DOES-NOT-APPLY`；或支撑当前 Gate 的 `REQUIRED` coverage 尚未 `verified`；或列出当前 target 的 `Risk priority∈{highest, high}` required 单元 `Sufficiency=NOT-MET`；或会影响当前 Gate 的关键 Evidence、目标环境、material Hypothesis 处置、要求的异质 coverage 缺失；或支撑当前 target 的任一最高风险 `Claim ID` 未满足异质 coverage；或该组未同时满足“不同 executor 完成 + 各自 `Judgment isolation=ISOLATED`”且 `audit.md` Residual risks 未记录实际执行者/隔离能力限制；或 `independentValidationRequiredFor=AUDIT` 而本审计没有最高风险组、或任一最高风险组缺少 independent validation；或 `independentValidationRequiredFor` 包含当前 target，而支撑当前 target 的最高风险组不存在、或任一此类组缺少 independent validation；或存在 Gate applicability=`APPLIES` 且 Severity=Critical/High、Decision=`NEEDS-DECISION` / `CONDITIONAL` 的 Finding；或若成立预计为 Critical/High 且与当前 Gate 相关的 material Hypothesis 因决定性验证缺失只能保留 residual gap | `INCOMPLETE` |
-| 3 | 无前两项，但存在 Gate applicability=`APPLIES` 且 Decision=`CONFIRMED`、Severity=Medium/Low、Disposition 为 `OPEN` / `REMEDIATING` 的 Finding，或 Gate applicability=`APPLIES` 的非关键 `NEEDS-DECISION` / `CONDITIONAL`，或非关键 `UNRESOLVED` applicability、非阻断 residual risk 或其它条件项 | `READY-WITH-CONDITIONS` |
-| 4 | 不满足以上三项，支撑当前 target 的所有 `REQUIRED` coverage 均已 `verified`，其中 `Risk priority∈{highest, high}` 单元均 `Sufficiency=MET`；支撑当前 target 的每个最高风险 `Claim ID` 均已由至少两个不同 archetype 的 required 单元完成异质 coverage；这些组均由不同 executor 完成且各自 `Judgment isolation=ISOLATED`，或实际执行者/隔离能力限制已披露；若 `independentValidationRequiredFor=AUDIT`，本审计必须存在最高风险组且每组真正满足 independent validation；若包含当前 target，必须存在支撑当前 target 的最高风险组且每组真正满足同一条件 | `READY` |
+| 1 | 存在 APPLIES + CONFIRMED 且 Severity 达到当前 target 的阻断阈值，未 RESOLVED-VERIFIED、也未获得当前 target 风险接受 | `BLOCKED` |
+| 2 | 当前 target 没有任何携带该 `gateTargets` 的 REQUIRED Claim；或相关 REQUIRED Claim 的 Unit 集合为空，任一已物化 Unit 未 verified；high/highest Claim Sufficiency 不是 MET；highest Claim 少于两个 verified 异质方法；显式 independent 要求未满足；`exhaustive` scope inventory 非空义务未闭合；存在 PENDING、达到阻断阈值的 CONDITIONAL/NEEDS-DECISION、可能形成关键阻断的 UNRESOLVED applicability、影响当前 target 的 material residual gap或决定性 Evidence/环境缺口 | `INCOMPLETE` |
+| 3 | 无前两项，但存在 APPLIES、低于阻断阈值、非 REJECTED 且未获得当前 target 合法风险接受的 Finding，或存在影响当前 target 的非 material residual risk / 其它明确条件项 | `READY-WITH-CONDITIONS` |
+| 4 | 所有相关 required 输入闭环，且没有阻断、未决或条件项 | `READY` |
 
-对**每个请求的 Gate target**分别按 `BLOCKED > INCOMPLETE > READY-WITH-CONDITIONS > READY` 取首个命中项。先应用该 Finding 对当前 target 的 `Gate treatment`：缺省 `STANDARD` 正常参与下表；合法的 `ACCEPTED` 只排除该 Finding 自身的风险阻断/条件，不排除 coverage/Evidence/环境完整性缺口。Hypothesis 的 supported/refuted/unresolved **不是 gate 状态**；Gate 输入来自 material H 的最终处置、Finding 的 Gate applicability + Gate treatment + Decision/Severity/Disposition，以及 required coverage/Evidence/环境完整性缺口；Provenance 与 current-state Evidence 用于形成 Finding 中的 applicability，不在报告阶段临场重算。
+细则：
 
-## 5. 阻断与解除条件
+- highest Claim 的异质性按 `claimId` 归组：至少两个 verified REQUIRED Unit 使用不同 method。
+- Independent validation 的机械判据以 [audit-ledger.md](audit-ledger.md) §3.4 为准：在支撑该 highest Claim 的 REQUIRED Unit 中，存在不同 executor、不同 method 且 `isolation=ISOLATED` 的 Unit 达到两组时成立；未隔离 Unit 不参与计数。`AUDIT` 约束所有 highest Claim；Gate target 值约束所有支撑该 target 的 highest Claim。明确要求却没有任何 highest Claim 也是缺口。
+- Claim `sufficiency=NOT-MET` 不能因其 Unit 已 verified 而放行。
+- 合法 `treatment=ACCEPTED` 只从当前 target 的已知 Finding 风险集合排除该 Finding；其 authorization 必须结构化绑定当前 auditId、完整 snapshot 和 target，不能从旧实例复制。不排除 coverage、Evidence、环境或 independent-validation 缺口。有 Gate 时禁止全局 ACCEPTED-RISK，避免越过未授权 target。
+- 每个 Gate 的 `basis` 必须非空并引用至少一个实际决定性 Q/F/G id；READY 使用固定 token `ALL-REQUIRED-INPUTS-SATISFIED`，无 highest Claim 导致的显式独立验证缺口使用 `INDEPENDENT-VALIDATION-GAP`，当前 target 零 REQUIRED coverage 使用 `REQUIRED-COVERAGE-GAP`，穷尽 inventory 未闭合使用 `EXHAUSTIVE-COVERAGE-GAP`。随后写入 `audit.gates.decisions` 并运行 validator。
 
-每个 BLOCKED Finding 必须有：
+## 5. 无 Gate 与 clean conclusion
 
-```text
-[ ] <需要完成的动作>
-    退出条件：<可观察、可测试、可判定的通过条件>
-```
+没有 Gate 时不创造 READY/BLOCKED；直接报告 Findings、已验证正确行为、Required actions 和 Residual uncertainty。
 
-没有足够 Evidence 的 Hypothesis 不得直接阻断；若仍 material，可形成带明确缺口的 Finding 并使用 `CONDITIONAL`。`NEEDS-DECISION` 只用于关键事实已足够、剩余的是产品/兼容/范围/风险取舍；Evidence 足够确认问题时才使用 `CONFIRMED`。报告文字本身不是通过门禁。
+FINAL 中如有 REQUIRED Unit 未 verified，报告必须沿该 Unit 的 `residualRiskId` 显示对应 material `G<n>`，不得宣称 clean conclusion。无 Gate 且存在显式 `independentValidationRequiredFor=["AUDIT"]` 时，FINAL 必须至少有一个 highest Claim，且每个 highest Claim 均满足独立验证；否则 state 非法，不能以 warning 或受限措辞代替硬要求。没有显式 independent 硬要求时，若存在 highest Claim 但没有任何最高风险异质验证由不同隔离执行者完成，可产生受限审计，但必须在 Residual uncertainty 披露“未形成 independent validation”；不得静默写成独立交叉验证。
 
-## 6. 无确认问题的措辞
+无 Gate 的 FINAL 也必须至少包含一个 REQUIRED Claim。`audit.objectives` 虽然非空，但它们只是任务问题；没有被物化为至少一个可验证 Claim 时，不存在能支持 FINAL 或 clean conclusion 的验证范围，validator 会拒绝该状态。
 
-只有同时满足以下条件时，才能使用 clean conclusion：主流程完成条件已满足；没有 `CONFIRMED` Finding；所有最终 Finding 都是 `REJECTED`；所有 high/highest required coverage 的 `Sufficiency=MET`；不存在 material `residual-gap`、决定性 Evidence/环境缺口或未满足的显式 independent-validation 要求。
+只有同时满足以下条件，才能写：
 
 > 在已审计范围和已执行检查内未发现已确认缺陷。
 
-不满足上述任一条件时，即使流程已经按残留风险或 `INCOMPLETE` Gate 收口，也必须使用未完成措辞，并列明实际缺口或待决事项：
+条件：
 
-> 已完成的审查未发现已确认缺陷，但仍存在未闭合的风险覆盖、Hypothesis、Evidence、环境、授权决策或强制独立验证事项，不能视为全面无缺陷结论。
+1. Task Contract 与实际范围闭环；若 `stop.policy=exhaustive`，`scopeCoverage` declared inventory 非空、与最终 snapshot 绑定，且每个 member completed 或带理由 excluded；
+2. 所有最终 Finding 均 REJECTED，或没有形成 Finding；
+3. 每个 required Claim 都有非空 Unit 集合且全部 verified，每个 verified Unit 至少有一条 DIRECT Evidence，high/highest Claim Sufficiency 为 MET，highest 异质覆盖完成；
+4. 不存在 material residual gap、决定性 Evidence/环境缺口或未满足的显式 independent 要求；
+5. 最终 state 通过 validator，或无机械能力时已经按同一不变量人工核对并明确披露。
 
-不得声称“绝对安全”“没有 bug”或“所有场景均正确”。
+否则使用受限措辞，具体列出仍未闭合的风险；不得写“绝对安全”“没有 bug”或“所有场景都正确”。
 
-## 7. 输出前一致性检查
+## 6. 输出前检查
 
-审计是否完成、何时停止扩张由主流程的 completion/stop 规则决定；本文件只检查最终输出是否忠实反映权威审计状态：
-
-- [ ] 已确认本审计只绑定一个权威 target/state snapshot；`gateTargets != NONE` 时每个请求 target 都按 Finding Gate applicability + target-specific Gate treatment + 权威 ledger + `coverageLocation` 指向的权威 coverage 中 `Obligation=REQUIRED` 的单元（含 Claim ID/Risk priority/Sufficiency 及 `independentValidationRequiredFor`）分别机械映射并写入 `audit.md` front matter 的 `gates`；没有重新解析自由文本风险接受、用报告措辞覆盖 Decision，或把多个 Gate 折叠成单一最坏值。
-- [ ] Executive report 先回答请求的 Gate(s)/Top risks/Required actions/Residual uncertainty；Recommendations 与 Required actions 分开。
-- [ ] Provenance 适用时正确区分 change-attributable / `PRE_EXISTING` / `UNKNOWN`；不适用时显示 `—`，没有把旧风险写成本次引入。
-- [ ] Audit appendix 能追溯关键 Finding → Supporting/Refuting Evidence → 当前权威 coverage；普通报告没有倾倒无关 investigation/日志。
-- [ ] “未发现已确认缺陷”的措辞已按 §6 直接核对最终 Decision、Sufficiency、material residual gap 与显式 independent-validation 要求，没有把“流程已收口”误当成 clean conclusion。
-- [ ] `stopReason`、residual risks、关键验证缺口和恢复/归档路径（实际存在时）已披露；修复验证报告与 `fix-map`/Disposition 一致。
+- [ ] 报告绑定一个 auditId/target/snapshot，范围与 FINAL state 一致。
+- [ ] 报告显示 auditId；若追溯了被接替实例，附录明确区分 predecessor/successor，不把 SUPERSEDED 结论当前化。
+- [ ] 只有真实请求的 Gate 被分别计算；没有折叠成单一最坏值。
+- [ ] Gate 先按本文件算法重算，再由 validator 核对缓存结果。
+- [ ] Finding 字段来自 state；H/E 只作引用，没有用代理共识覆盖 Decision。
+- [ ] Required actions 与 Recommendations 分开，退出条件可判定。
+- [ ] Provenance、Disposition、Gate、探索、fix 字段只在适用时显示。
+- [ ] material residual risk、未运行检查、基线失败、能力和恢复限制已披露。
+- [ ] clean conclusion 已按 §5 单独核对，不以“流程结束”替代。

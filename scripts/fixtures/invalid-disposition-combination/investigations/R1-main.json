@@ -1,0 +1,26 @@
+{
+  "auditBinding": {"auditId": "invalid-disposition-001", "snapshot": {"kind": "other", "identity": "invalid-disposition-fixture-v1"}},
+  "unitId": "R1",
+  "claimId": "Q1",
+  "method": "contract-spec-verification",
+  "hypotheses": [
+    {
+      "id": "R1-H1",
+      "statement": "the deployment target is unspecified",
+      "potentialImpact": "deployment may use the wrong environment",
+      "conditions": "deployment is attempted",
+      "counterHypothesis": "platform metadata supplies the target",
+      "expectedSafeBehavior": "a platform contract identifies one target",
+      "evidenceSearched": "available platform metadata",
+      "disconfirmationResult": "unresolved",
+      "evidenceRefs": ["R1-E1"],
+      "result": "unresolved",
+      "recommendation": "promote-to-finding",
+      "reasoning": "the available configuration has no target and platform evidence is missing"
+    }
+  ],
+  "evidence": [
+    {"id": "R1-E1", "polarity": "supports", "strength": "ES1", "reproducibility": "not-applicable", "source": "deploy.json:1", "observation": "the file contains no target field"}
+  ],
+  "coverageSummary": {"checked": ["deployment configuration"], "verifiedBehaviors": [], "gaps": ["platform metadata unavailable"]}
+}

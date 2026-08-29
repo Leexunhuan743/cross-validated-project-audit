@@ -1,7 +1,7 @@
 interface:
   display_name: "交叉验证多代理审计"
-  short_description: "风险驱动异质审计：H→E→F→Decision、Provenance、Severity/Confidence 与决策型报告"
-  default_prompt: "使用 $cross-validated-project-audit 对当前工件执行风险驱动、异质且可追溯的审计，并输出决策优先的报告。"
+  short_description: "高风险项目的多代理异质审计、证据复核、发布门禁与修复验证"
+  default_prompt: "使用 $cross-validated-project-audit 对当前高风险工件执行异质交叉审计，并输出证据可追溯的决策报告。"
   icon_small: "./assets/icon.svg"
   icon_large: "./assets/icon.svg"
 policy:

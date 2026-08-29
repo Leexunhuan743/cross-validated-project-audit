@@ -1,0 +1,11 @@
+{
+  "auditBinding": {"auditId": "invalid-disposition-001", "snapshot": {"kind": "other", "identity": "invalid-disposition-fixture-v1"}},
+  "findingId": "F1",
+  "method": "contract-spec-verification",
+  "checkedEvidence": ["R1-E1"],
+  "evidence": [
+    {"id": "F1-E1", "polarity": "supports", "strength": "ES1", "reproducibility": "not-applicable", "source": "workspace inventory", "observation": "no platform metadata was available"}
+  ],
+  "conclusion": "the fact remains conditional on unavailable platform metadata",
+  "limits": ["target platform was not available"]
+}

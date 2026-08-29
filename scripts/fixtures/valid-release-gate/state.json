@@ -1,0 +1,113 @@
+{
+  "schemaVersion": 2,
+  "phase": "FINAL",
+  "audit": {
+    "id": "release-001",
+    "target": "release candidate abc123",
+    "scope": "authentication entrypoint",
+    "snapshot": {"kind": "deployment", "version": "release-candidate-2026-08-22"},
+    "objectives": ["decide whether the candidate is release-ready"],
+    "availableEvidence": ["source", "target-runtime smoke test"],
+    "deliverable": "release Gate report",
+    "scopeMode": "change",
+    "objectiveProfiles": ["general", "security"],
+    "executionMode": "audit-only",
+    "scopeResolution": {"basis": "REPOSITORY", "confidence": "HIGH"},
+    "gates": {
+      "targets": ["RELEASE"],
+      "policies": {
+        "RELEASE": {"blockAtOrAbove": "Medium"}
+      },
+      "decisions": {
+        "RELEASE": {
+          "result": "BLOCKED",
+          "basis": ["F1"]
+        }
+      }
+    },
+    "startedAt": "2026-08-22T00:00:00Z",
+    "updatedAt": "2026-08-22T00:20:00Z"
+  },
+  "sharedFacts": [
+    {"id": "P1", "fact": "the public login route calls auth.validate", "source": "src/http.py:40"}
+  ],
+  "claims": [
+    {
+      "id": "Q1",
+      "obligation": "REQUIRED",
+      "riskArea": "security",
+      "statement": "the login route rejects malformed bearer tokens",
+      "consequence": "unauthenticated access may be accepted",
+      "priority": "highest",
+      "scope": "public login route",
+      "gateTargets": ["RELEASE"],
+      "discrimination": {
+        "safePrediction": "malformed tokens are rejected before authorization",
+        "failurePrediction": "a malformed token reaches an authorized handler",
+        "discriminatingObservation": "a public-path request returns an authorization failure",
+        "sufficiencyCriterion": "implementation trace and public-path trace agree on rejection"
+      },
+      "sufficiency": "MET"
+    }
+  ],
+  "verificationUnits": [
+    {
+      "id": "R1",
+      "claimId": "Q1",
+      "method": "implementation-trace",
+      "executor": "investigator-a",
+      "status": "verified",
+      "investigationFile": "investigations/R1-a.json",
+      "reconciliations": [
+        {"hypothesisId": "R1-H1", "result": "FINDING", "findingId": "F1", "evidenceRefs": ["R1-E1"]}
+      ]
+    },
+    {
+      "id": "R2",
+      "claimId": "Q1",
+      "method": "user-path-trace",
+      "executor": "investigator-b",
+      "status": "verified",
+      "investigationFile": "investigations/R2-b.json",
+      "reconciliations": []
+    }
+  ],
+  "findings": [
+    {
+      "id": "F1",
+      "statement": "malformed tokens are rejected, but the rejection log omits the request correlation id",
+      "locations": ["src/http.py:44"],
+      "causeImpact": "missing context slows incident diagnosis without bypassing authorization",
+      "conditions": "malformed token request",
+      "sourceHypotheses": ["R1-H1"],
+      "supportingEvidence": ["R1-E1", "F1-E1"],
+      "refutingEvidence": [],
+      "disconfirmation": {
+        "counterHypothesis": "the correlation id is added by middleware",
+        "evidenceSearched": "middleware and emitted event",
+        "result": "counter-refuted"
+      },
+      "risk": {
+        "impact": "Medium",
+        "likelihood": "Medium",
+        "reachability": "Common",
+        "recoverability": "Manual"
+      },
+      "decision": "CONFIRMED",
+      "severity": "Medium",
+      "confidence": "High",
+      "verificationMethod": "implementation-trace",
+      "patternScope": "ISOLATED",
+      "gates": {
+        "RELEASE": {
+          "applicability": "APPLIES",
+          "basis": "the logging path ships in this candidate",
+          "evidenceRefs": ["F1-E1"]
+        }
+      },
+      "verificationFile": "verification/F1.json",
+      "exitCriteria": "the rejection event contains the correlation id"
+    }
+  ],
+  "residualRisks": []
+}

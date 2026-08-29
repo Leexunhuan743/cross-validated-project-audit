@@ -1,0 +1,15 @@
+{
+  "auditBinding": {"auditId": "invalid-gate-001", "snapshot": {"kind": "other", "identity": "insufficient-evidence-fixture-v1"}},
+  "unitId": "R1",
+  "claimId": "Q1",
+  "method": "contract-spec-verification",
+  "hypotheses": [],
+  "evidence": [
+    {"id": "R1-E1", "polarity": "context", "strength": "ES1", "reproducibility": "not-applicable", "source": "public API schema", "observation": "the schema is present, but no old-client runtime check was available"}
+  ],
+  "coverageSummary": {
+    "checked": ["API schema"],
+    "verifiedBehaviors": [],
+    "gaps": ["old-client runtime unavailable"]
+  }
+}

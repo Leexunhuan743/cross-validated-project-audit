@@ -1,0 +1,40 @@
+{
+  "auditBinding": {"auditId": "fix-001", "snapshot": {"kind": "other", "identity": "fixed-parser-snapshot-2026-08-22"}},
+  "findingId": "F1",
+  "method": "test-discrimination",
+  "checkedEvidence": ["R1-E1"],
+  "evidence": [
+    {
+      "id": "F1-E1",
+      "polarity": "refutes",
+      "strength": "ES3",
+      "reproducibility": "repeatable",
+      "source": "fixed-snapshot regression run",
+      "observation": "the fixed snapshot rejects the previous oversized input"
+    },
+    {
+      "id": "F1-E2",
+      "polarity": "supports",
+      "strength": "ES2",
+      "reproducibility": "not-applicable",
+      "source": "pre-fix parser and caller implementation trace",
+      "observation": "the pre-fix copy path has no caller-side length bound"
+    }
+  ],
+  "challenge": {
+    "status": "COMPLETED",
+    "mode": "EQUIVALENT-DIRECT-DISCONFIRMATION",
+    "method": "test-discrimination",
+    "evidenceRefs": ["F1-E2"],
+    "result": "counter-refuted"
+  },
+  "resolutionChallenge": {
+    "status": "COMPLETED",
+    "unitId": "R2",
+    "method": "implementation-trace",
+    "evidenceRefs": ["R2-E1"],
+    "result": "resolution-supported"
+  },
+  "conclusion": "the original finding is not applicable to the fixed snapshot",
+  "limits": []
+}

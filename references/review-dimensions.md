@@ -1,6 +1,6 @@
 # 风险面、验证方法与证据视角
 
-覆盖设计的固定顺序是：**Risk → verification method → executor**。先回答“哪些风险必须被覆盖、什么 Evidence 能区分正确与错误”，再决定执行者。代理数量不是覆盖指标；共享 `project-map` 的 DIRECT 事实不会破坏判断隔离，真正必须隔离的是 Hypothesis、Evidence 的解释、Finding、Decision 和预期答案。
+覆盖设计的固定顺序是：**Risk → verification method → executor**。先回答“哪些风险必须被覆盖、什么 Evidence 能区分正确与错误”，再决定执行者。代理数量不是覆盖指标；共享 `state.json.sharedFacts` 中的 DIRECT 事实不会破坏判断隔离，真正必须隔离的是 Hypothesis、Evidence 的解释、Finding、Decision 和预期答案。
 
 ## 1. 核心风险面
 
@@ -54,7 +54,7 @@ Test issue: ENCODES_FAILURE / MISSING_REGRESSION / —
 - `NO`：safe/failure 都可能通过，不能作为该主张的判别性保护。
 - `UNKNOWN`：没有做 PRE-fix、变异或等价判别，不能因为测试存在/通过而升级。
 - `ENCODES_FAILURE` 表示测试把错误行为写成 expected；`MISSING_REGRESSION` 表示缺少能重现该 Finding 的回归案例。二者是可选 issue，不与四值判别力混成一个枚举。
-- 记录写在产生该测试 Evidence 的 investigation/verification 附近；ledger 不复制 Test discrimination。
+- 记录写在产生该测试 Evidence 的 investigation/verification JSON 内；`state.json` 不复制 Test discrimination。
 
 
 ## 3. 证据视角（辅助，不作为调度主键）
@@ -73,14 +73,15 @@ Test issue: ENCODES_FAILURE / MISSING_REGRESSION / —
 ## 4. 风险驱动的覆盖选择
 
 1. 从 Audit objectives、变更触达边界、公共入口、状态/数据边界和失败后果列出相关风险面。
-2. 对每个风险面写一个可判定的“风险主张/不变量”和现实失败后果，写入 coverage 时分配稳定 `Claim ID`，并写入 `Risk priority`：`highest`（判断错误可能直接改变门禁或造成重大损害）、`high`（有明确重要影响）、`normal`（其余相关风险）。这是派发优先级，不是 finding 严重度，也不得因 `Risk tolerance` 放宽而降低；没有具体主张的风险面不要为了 checklist 填充。
-3. 对 `highest/high` 风险主张先写 `Safe prediction / Failure prediction / Discriminating observation / Sufficiency criterion`：若安全应观察到什么、若 failure 存在应观察到什么、哪条最小 DIRECT 观察能区分两者，以及达到什么 Evidence 条件才足以裁决该具体主张；再选择验证 archetype 和执行者。Sufficiency criterion 必须与风险性质相称，不设全局“high 必须 ES4”阈值，也不得因当前环境拿不到证据而由调查者自行降低。事前预测/标准都不是 Evidence，只有实际观察才编号成 E；criterion 的最终 `MET/NOT-MET` 结果写入权威 coverage schema。
-4. 每个最高风险 `Claim ID` 至少使用两个**不同 archetype**，用于满足这一要求的单元都必须是 `REQUIRED`。只有同组单元实际满足“不同执行者 + `Judgment isolation=ISOLATED`”才可额外计为 independent validation；同一执行者的多种方法只满足异质性。执行者分配、隔离重跑、有界降级与强制独立验证的完成规则按 `SKILL.md` §3，结果写入 coverage 与 Residual risks。
-5. 不同调查者可以共享 baseline、scope、术语、公共入口、changed files 等 DIRECT 事实；若共享了前一路径的 Hypothesis/Finding/Decision 或解释性结论，则不能再把对应 coverage 单元标为 `Judgment isolation=ISOLATED`。两个执行者用同一 archetype、同一证据路径仍只算冗余复核。
-6. 所有准备提升为 Finding 的 material Hypothesis 都先完成最小 disconfirmation；暂定 Critical/High 的 Finding 在 Decision 前规划/尝试第二种异质 archetype 或等价直接反证。具体 Decision 前提由 assessment model 负责；本模块只记录方法覆盖是否完成/缺失，不为凑形式复制代理。
-7. 执行者可以是主代理或子代理；一个执行者可以承担多个低风险单元，一个高风险主张也可以由多个单元/执行者覆盖。**不要把“一个代理 = 一个风险面”写死。**
-8. 不要求每个风险面都使用所有 archetype；选择最少但足以区分关键失败模式的方法集合。
-9. 新探索 round 是否继续由主流程的 `stopPolicy` 决定；本模块只负责识别是否出现新的 material Hypothesis（若成立预计形成 Medium+ Finding）、会改变 Decision/Severity/任一 Gate 或使 Confidence 跨越 Decision 所需阈值的 Evidence、系统性模式、新 highest/high 风险或关键冲突，不重复定义停止阈值。
+2. 每个现实风险写成一个可判定 Claim，集中保存到 `state.json.claims[]`：稳定 id、义务、风险面、陈述、失败后果、优先级和有界范围。`highest` 表示判断错误可能直接改变 Gate 或造成重大损害，`high` 表示明确重要影响，`normal` 表示其它相关风险。优先级不是 Finding Severity，也不因 Gate 阈值或风险接受而降低。
+3. `highest` Claim 写完整 `Safe prediction / Failure prediction / Discriminating observation / Sufficiency criterion`；`high` 只写最小判别观察和充分性标准，避免把四项计划复制到普通重要风险。标准必须与风险相称，不能因当前环境拿不到证据而降低。计划不是 Evidence；实际观察才编号成 E。
+4. 每种方法写成独立 `verificationUnits[]` 记录并引用 Claim，不复制 Claim 字段。每个 highest Claim 至少两个 verified REQUIRED Unit 使用不同 archetype；主代理汇总所有 Unit 的 DIRECT Evidence 后，只在 Claim 定稿一次 `sufficiency=MET|NOT-MET`。
+5. 方法异质与执行者独立分开。同一执行者的不同方法可满足异质性；只有不同 executor、不同 method 且相关 Unit 实际 `isolation=ISOLATED` 才是 independent validation。没有明确独立验证硬要求时，能力不足可用方法级验证收口并披露限制；存在硬要求时相应结论保持不完整。
+6. 不同调查者可以共享 baseline、scope、术语、公共入口、changed files 等 DIRECT 事实；若共享了前一路径的 Hypothesis/Finding/Decision 或解释性结论，就不能把该 Unit 标为 ISOLATED。两个执行者用同一 archetype、同一证据路径仍只算冗余复核。
+7. 所有准备提升为 Finding 的 material Hypothesis 都先完成最小 disconfirmation；暂定 Critical/High 的 Finding 在 Decision 前规划/尝试第二种异质 archetype 或等价直接反证。assessment model 决定裁决前提；本模块不为凑形式复制代理。
+8. 一个执行者可以承担多个 normal Unit，一个 Claim 也可以由多个 Unit 覆盖；不要求每个风险面使用所有 archetype，选择最少但足以区分关键失败模式的方法集合。
+9. 只有真实开展义务外搜索时才创建 EXPLORATORY Claim 和 `exploration` 对象。本模块只识别 material delta，不重复定义停止阈值。
+10. 暂定 Critical/High Finding 的 Decision 第二挑战不另建平行状态：异质挑战必须指向真实 Unit，等价反证必须来自主 verification 新 Evidence，统一写入 `verification/F<n>.json.challenge`。Critical/High 修复效果的不同方法复核另写同文件的 `resolutionChallenge`，避免把“问题曾成立”和“当前已修复”混成一个结论；字段组合由 [audit-ledger.md](audit-ledger.md) 规范。
 
 ## 5. 常见目标的风险/方法组合
 

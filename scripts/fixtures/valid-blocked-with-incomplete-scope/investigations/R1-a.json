@@ -1,0 +1,26 @@
+{
+  "auditBinding": {"auditId": "blocked-001", "snapshot": {"kind": "other", "identity": "blocked-candidate-2026-08-22"}},
+  "unitId": "R1",
+  "claimId": "Q1",
+  "method": "adversarial-challenge",
+  "hypotheses": [
+    {
+      "id": "R1-H1",
+      "statement": "a traversal filename escapes the upload root",
+      "potentialImpact": "arbitrary file overwrite",
+      "conditions": "crafted multipart filename",
+      "counterHypothesis": "the framework normalizes the filename",
+      "expectedSafeBehavior": "the handler receives a basename only",
+      "evidenceSearched": "adapter and handler input",
+      "disconfirmationResult": "counter-refuted",
+      "evidenceRefs": ["R1-E1"],
+      "result": "supported",
+      "recommendation": "promote-to-finding",
+      "reasoning": "the raw traversal segment reaches the filesystem join"
+    }
+  ],
+  "evidence": [
+    {"id": "R1-E1", "polarity": "supports", "strength": "ES3", "reproducibility": "repeatable", "source": "isolated public upload probe", "observation": "the crafted name writes outside the configured root"}
+  ],
+  "coverageSummary": {"checked": ["public upload path"], "verifiedBehaviors": [], "gaps": []}
+}

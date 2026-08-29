@@ -1,0 +1,22 @@
+{
+  "auditBinding": {"auditId": "ordinary-001", "snapshot": {"kind": "other", "identity": "bounded-workspace-change-2026-08-22"}},
+  "unitId": "R1",
+  "claimId": "Q1",
+  "method": "implementation-trace",
+  "hypotheses": [],
+  "evidence": [
+    {
+      "id": "R1-E1",
+      "polarity": "context",
+      "strength": "ES2",
+      "reproducibility": "repeatable",
+      "source": "src/parser.py and its direct callers",
+      "observation": "valid inputs follow the parser success path"
+    }
+  ],
+  "coverageSummary": {
+    "checked": ["parser entry and direct callers"],
+    "verifiedBehaviors": ["valid inputs reach the success path"],
+    "gaps": []
+  }
+}

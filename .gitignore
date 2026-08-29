@@ -1,0 +1,8 @@
+# Python build artifacts (regenerable; must not ship inside the skill package)
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Test runner caches
+.pytest_cache/
