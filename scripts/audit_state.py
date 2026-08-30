@@ -495,13 +495,17 @@ def find_unit(state: dict[str, Any], unit_id: str) -> tuple[int | None, dict[str
 def validate_investigation_file(state: dict[str, Any], artifact: Path, unit: dict[str, Any], index: int) -> Any:
     """Run the validator's full investigation checks against one file.
 
-    The Validation root is the artifact's own directory so a staged file
-    outside the state root still gets a clean relative label; the audit id and
-    snapshot underpinning the binding check come from the loaded state.
+    The artifact is resolved first: validate_investigation computes its label
+    via ``path.relative_to(v.root)``, which fails for a relative path against
+    an absolute root. The Validation root is the artifact's own directory so a
+    staged file outside the state root still gets a clean relative label; the
+    audit id and snapshot underpinning the binding check come from the loaded
+    state.
     """
     validator = _import_validator()
+    artifact = artifact.resolve()
     audit = state.get("audit") if isinstance(state.get("audit"), dict) else {}
-    v = validator.Validation(artifact.resolve().parent)
+    v = validator.Validation(artifact.parent)
     v.audit_id = audit.get("id")
     v.snapshot = audit.get("snapshot")
     if isinstance(state.get("schemaVersion"), int):
@@ -533,9 +537,10 @@ def cmd_check(args: argparse.Namespace) -> int:
         artifact = Path(args.artifact)
         if not artifact.is_file():
             return fail(f"artifact not found: {artifact}")
+        artifact = artifact.resolve()
         validator = _import_validator()
         fake_unit = {"id": args.unit_id, "claimId": args.claim_id, "method": args.method}
-        v = validator.Validation(artifact.resolve().parent)
+        v = validator.Validation(artifact.parent)
         v.audit_id = args.audit_id
         v.snapshot = parse_snapshot_arg(args.snapshot_json)
         v.schema_version = args.schema_version
