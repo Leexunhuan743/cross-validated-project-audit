@@ -208,7 +208,13 @@ def string_items(v: Validation, value: Any, path: str) -> list[str]:
 
 
 def string_set(value: Any) -> set[str]:
-    """Return string members for safe downstream set and membership operations."""
+    """Return string members for safe downstream set and membership operations.
+
+    Unlike ``string_items``, this function does **not** report errors -- it
+    silently filters out non-string entries.  Use it only in later passes
+    where the same value has already been validated (or where a missing
+    member is acceptable), never as the first check of untrusted input.
+    """
     if not isinstance(value, list):
         return set()
     return {item for item in value if isinstance(item, str)}
@@ -1014,7 +1020,7 @@ def validate_state(state_path: Path) -> Validation:
     if is_link_like(state_path):
         v.error(state_path.name, "state.json must not be a symlink or junction")
         return v
-    data = load_json(state_path, v, state_path.name)
+    data = load_json(state_path, v, str(state_path))
     if not isinstance(data, dict):
         if data is not None:
             v.error(state_path.name, "expected object")

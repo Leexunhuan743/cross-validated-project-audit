@@ -6,3 +6,6 @@ __pycache__/
 
 # Test runner caches
 .pytest_cache/
+
+# Local working notes (engineering assessments / session memory)
+.workbuddy/

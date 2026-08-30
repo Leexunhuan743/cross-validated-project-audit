@@ -112,7 +112,7 @@ python -B <skill-root>/scripts/validate_audit_state.py <state-directory>
 python -B <skill-root>/scripts/validate_audit_state.py --state-root <state-root>  # 归档、冲突或 supersession 后
 ```
 
-validator 检查结构、引用、状态组合和 Gate 是否过强，不证明事实判断正确。validator 仅依赖 Python 标准库，需 Python 3.9+（已在 3.13 验证；`from __future__ import annotations` 与标准 typing，无版本专属语法）。Python 不可用时按账本的同一不变量人工核对，并披露 `validator not executed`。
+validator 检查结构、引用、状态组合和 Gate 是否过强，不证明事实判断正确。validator 仅依赖 Python 标准库，需 Python 3.9+（已在 3.12/3.13 验证；`from __future__ import annotations` 与标准 typing，无版本专属语法）。Python 不可用时按账本的同一不变量人工核对，并披露 `validator not executed`。
 
 可选的机械辅助（同样只需标准库与 Python 3.9+），用于消除重复手写，不参与任何语义判断：
 

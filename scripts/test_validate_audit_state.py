@@ -563,6 +563,9 @@ class SemanticInvariantTests(unittest.TestCase):
             state["verificationUnits"][0]["reconciliations"][0]["findingId"] = {"bad": 1}
 
         def bad_evidence_polarity(state: dict) -> None:
+            # polarity lives inside the investigation artifact, so the real
+            # mutation happens in mutate_bad_evidence below; this placeholder
+            # only exists to name the subTest case.
             pass
 
         def null_reconciliations(state: dict) -> None:
@@ -1728,6 +1731,35 @@ class SemanticInvariantTests(unittest.TestCase):
                 code = run_self_test(fixtures)
             self.assertEqual(code, 1)
             self.assertIn("missing expected error fragments", output.getvalue())
+
+    def test_self_test_error_count_pin_rejects_unexpected_error_counts(self) -> None:
+        """The error_count pin catches duplicated/lost errors that the fragment
+        check would still PASS; a wrong declared count must fail the self-test
+        even when every fragment is present."""
+        with tempfile.TemporaryDirectory(prefix="cvpa-self-test-count-") as raw:
+            fixtures = Path(raw)
+            shutil.copytree(
+                FIXTURES / "invalid-disposition-combination",
+                fixtures / "invalid-disposition-combination",
+            )
+            (fixtures / "expectations.json").write_text(
+                json.dumps(
+                    {
+                        "invalid-disposition-combination": [
+                            "explicit disposition is allowed only for CONFIRMED findings"
+                        ],
+                        "invalid-disposition-combination.error_count": 99,
+                    },
+                    indent=2,
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+            output = StringIO()
+            with redirect_stdout(output):
+                code = run_self_test(fixtures)
+            self.assertEqual(code, 1)
+            self.assertIn("expected 99 errors, got 1", output.getvalue())
 
     # decision history ------------------------------------------------------
 

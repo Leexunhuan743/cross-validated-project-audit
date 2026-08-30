@@ -70,7 +70,7 @@ Finding、Decision、Residual risk、实际 Gate 和 audit-and-fix 批次 DAG �
 
 ## Validator
 
-Skill 自带标准库 validator，无第三方依赖，需 Python 3.9+（仅用标准库，`from __future__ import annotations` 与标准 typing，无版本专属语法；已在 3.13 验证）：
+Skill 自带标准库 validator，无第三方依赖，需 Python 3.9+（仅用标准库，`from __future__ import annotations` 与标准 typing，无版本专属语法；已在 3.12/3.13 验证）：
 
 ```text
 python -B scripts/validate_audit_state.py <state-directory>
@@ -92,7 +92,7 @@ python -B -m unittest discover -s scripts          # 全量回归：validator + 
 - Gate、Provenance、探索与 exhaustive scope coverage，以及 audit-and-fix 批次 DAG、依赖、generation、验收 Evidence 和 FINAL 状态；
 - `--state-root` 下的闭合活动/归档布局、缺失 state 的半成品目录、误入 archive 的 ACTIVE 实例、重复 audit id、双向 supersession 链、多后继和环。
 
-仓库自带 133 个回归测试覆盖上述每一项（validator 101 个 + 状态辅助脚本 32 个，`discover -s scripts` 会一次跑完）。改动任一脚本后应全量跑一遍——只跑单个测试文件会漏掉另一个脚本的回归。
+仓库自带 134 个回归测试覆盖上述每一项（validator 102 个 + 状态辅助脚本 32 个，`discover -s scripts` 会一次跑完）。改动任一脚本后应全量跑一遍——只跑单个测试文件会漏掉另一个脚本的回归。
 
 validator 通过只证明状态内部一致，不证明代码事实和风险判断正确。Python 或持久化不可用时，Agent 必须按同一不变量人工检查并披露限制。
 
