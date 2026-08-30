@@ -35,11 +35,11 @@ Deliverable
 - **语义分层**：Hypothesis 是可证伪怀疑，Evidence 是直接观察，Finding 是主代理规范化的问题对象，Decision 是最终裁决。**推理永远不是 Evidence。**
 - **风险先于代理**：风险主张写一次；每种验证方法成为独立 Unit，最后才选择执行者。代理数量不是覆盖指标。
 - **反证优先**：material Hypothesis 提升前必须检查最强现实安全解释和实际反证；被反驳就关闭，不靠降低 Severity 来消除风险。
-- **异质不等于独立**：同一执行者的不同方法可以异质，但只有不同执行者、不同方法且判断隔离真实成立时才声称 independent validation。
+- **异质不等于独立**：同一执行者的不同方法可以异质，但 independent validation 还须叠加异质覆盖等前置条件，完整判据见 `references/audit-ledger.md` §3.4（权威）。
 - **公共路径优先**：用户可见、平台、并发和第三方语义优先从真实入口或对应版本权威契约获取 Evidence，内部看起来正确不算数。
 - **Severity ≠ Confidence ≠ Evidence Strength**：影响大小、整体确定度、单条证据质量分别表达，不许互相折算。
 - **冲突靠判别，不靠投票**：支持与反证冲突时寻找能区分双方的直接观察，不按证据条数或代理数量取胜。
-- **条件概念按需出现**：没有 Gate 就不创建 Gate；不做变更归因就不写 Provenance；Disposition 只在真实进入整改、验证消除，或无 Gate 时明确接受整个 Finding 后物化；没有探索轮就不维护探索计数。**把可选字段照着完整 schema 填满，不会让审计更严谨，只会多一批没有信息的字段**——`references/audit-ledger.md` §3.1.1 给了一份实测通过的最小 `state.json`，照抄起步即可。
+- **条件概念按需出现**：没有 Gate 就不创建 Gate；不做变更归因就不写 Provenance；Disposition 只在真实进入整改、验证消除，或无 Gate 时明确接受整个 Finding 后物化；没有探索轮就不维护探索计数。**把可选字段照着完整 schema 填满，不会让审计更严谨，只会多一批没有信息的字段**——`references/audit-ledger.md` §3.1.3 给了一份实测通过的最小 `state.json`，照抄起步即可。
 - **合法结束不等于 clean conclusion**：关键证据不可得时，受限报告或 INCOMPLETE 是正确结果。
 - **状态改变不覆盖历史**：权威 target/snapshot/scope/shared facts 发生契约外实质变化时，旧实例冻结为 SUPERSEDED，新实例从 ACTIVE 重新取证，不把旧裁决复制为当前结论。事先约定的 audit-and-fix PRE→POST 转换是同一任务契约的执行，不是外部换目标。
 - **穷尽要求可证明**：用户明确要求逐文件/逐行时，非空 scope inventory、完成项、排除项和最终 snapshot 写入 `scopeCoverage`；未闭合成员在没有已确认 blocker 时使相关 Gate 为 INCOMPLETE，已有 blocker 时保持 BLOCKED 并同时披露缺口。
@@ -66,7 +66,7 @@ Deliverable
 
 Finding、Decision、Residual risk、实际 Gate 和 audit-and-fix 批次 DAG 都只在 state 中保存。Investigation/verification JSON 保存可追溯 Evidence，但不作为第二份 live Decision；其 `auditBinding` 必须匹配当前 auditId 与 snapshot，不能把旧实例 Evidence 复制成当前证据。`fix-map.md` 仅是从 `state.json.fixWorkflow` 生成的人类可读视图，不参与恢复裁决。
 
-**初始化时可直接照抄 `references/audit-ledger.md` §3.1.1 的最小模板**——它只含真正必填的字段（已用 validator 实测通过），并附一张"什么情况下才需要加字段"的对照表。
+**初始化时可直接照抄 `references/audit-ledger.md` §3.1.3 的最小模板**——它只含真正必填的字段（已用 validator 实测通过），并附一张"什么情况下才需要加字段"的对照表。
 
 ## Validator
 
@@ -76,8 +76,10 @@ Skill 自带标准库 validator，无第三方依赖，需 Python 3.9+（仅用�
 python -B scripts/validate_audit_state.py <state-directory>
 python -B scripts/validate_audit_state.py --state-root <state-root>
 python -B scripts/validate_audit_state.py --self-test scripts/fixtures
-python -B -m unittest -v scripts/test_validate_audit_state.py
+python -B -m unittest discover -s scripts          # 全量回归：validator + 状态辅助脚本
 ```
+
+以下是机械可判子集；语义判断（Evidence 是否可信、Severity 是否合理）仍由主代理负责。
 
 它检查：
 
@@ -90,7 +92,7 @@ python -B -m unittest -v scripts/test_validate_audit_state.py
 - Gate、Provenance、探索与 exhaustive scope coverage，以及 audit-and-fix 批次 DAG、依赖、generation、验收 Evidence 和 FINAL 状态；
 - `--state-root` 下的闭合活动/归档布局、缺失 state 的半成品目录、误入 archive 的 ACTIVE 实例、重复 audit id、双向 supersession 链、多后继和环。
 
-仓库自带 99 个回归测试覆盖上述每一项，改动 validator 后应全量跑一遍。
+仓库自带 133 个回归测试覆盖上述每一项（validator 101 个 + 状态辅助脚本 32 个，`discover -s scripts` 会一次跑完）。改动任一脚本后应全量跑一遍——只跑单个测试文件会漏掉另一个脚本的回归。
 
 validator 通过只证明状态内部一致，不证明代码事实和风险判断正确。Python 或持久化不可用时，Agent 必须按同一不变量人工检查并披露限制。
 
@@ -109,7 +111,7 @@ python -B scripts/audit_state.py verify <dir>                 # 转调 validator
 
 `bind` 有一条不自动化的规则：遇到**已存在但不匹配**的 `auditBinding`，它默认**拒绝覆盖**并提示"该证据属于另一次审计，必须重新取证而非重新打标"。只有显式 `--force` 才覆盖——因为重新打标会把旧快照的证据洗白成当前证据。
 
-它**只做机械操作**：不推断 Severity、Decision、Sufficiency 或 Gate 结果，也不替代 validator——合法性仍由 validator 裁决。没有 Python 时手工照 §3.1.1 模板写即可，协议不依赖它。
+它**只做机械操作**：不推断 Severity、Decision、Sufficiency 或 Gate 结果，也不替代 validator——合法性仍由 validator 裁决。没有 Python 时手工照 `references/audit-ledger.md` §3.1.3 模板写即可，协议不依赖它。
 
 ## 成本与边界
 
@@ -134,8 +136,10 @@ python -B scripts/audit_state.py verify <dir>                 # 转调 validator
 
 ## 使用与安装
 
-- 将整个目录放入本地 Agent/harness 约定的 skills 目录，目录名保持 `cross-validated-project-audit`；必须同时保留根目录 `SKILL.md`、`references/`、`scripts/`、`agents/` 和 `assets/`。
+- 将整个目录放入本地 Agent/harness 约定的 skills 目录，目录名保持 `cross-validated-project-audit`；必须同时保留根目录 `SKILL.md`、`references/` 和 `scripts/`。
 - 自动触发与排除范围以 `SKILL.md` frontmatter description 为准；显式调用方式由客户端决定。本 Skill 不依赖某一种编排接口。
+- `agents/` 与 `assets/` 只服务 OpenAI 系产品（ChatGPT / Codex / API / Atlas）：`agents/openai.yaml` 是它的客户端元数据，`assets/icon.svg` 是它的图标。其它 harness 可整个忽略这两个目录，协议本身不需要它们。
+- 分发前可删除 `.pytest_cache/`（若有）；它已被 `.gitignore` 忽略，但拷贝目录分发时会一并带走。
 - 默认 `executionMode=audit-only`。只有用户明确要求实施本地修复时才进入 `audit-and-fix`；这仍不授权 commit、push、PR、部署或生产/外部写入。audit-only 不修改被审计的产品工件、Git metadata 或外部系统；协议产物只能写入平台/用户指定的独立安全 state root，或审计开始前已被忽略的仓库内 `.audits/` sidecar。
 - audit-only 不为保存状态自动修改 `.gitignore` 或 `.git/info/exclude`；仓库内 sidecar 不属于产品工件、不得混入产品路径或交付。没有安全持久化位置时，使用同构 session-only 状态并披露无法机械校验和跨会话恢复；不会向目标目录落盘。
 - 没有请求合并、发布或系统就绪判断时不创建 Gate；普通摘要、纯风格检查和无需交叉验证的窄问答不应启动本协议。
@@ -163,7 +167,7 @@ python -B scripts/audit_state.py verify <dir>                 # 转调 validator
 | `scripts/validate_audit_state.py` | 可选校验器，Python 3.9+ | 可选 |
 | `scripts/audit_state.py` | 可选机械辅助：init / bind / lint / verify | 可选 |
 
-`agents/openai.yaml` 是客户端元数据，`assets/icon.svg` 是图标。当前仓库只维护中文协议 v2，不再附带独立英文变体。
+当前仓库只维护中文协议 v2，不再附带独立英文变体。
 
 ## 设计取舍
 
@@ -171,5 +175,5 @@ python -B scripts/audit_state.py verify <dir>                 # 转调 validator
 - 删除 19 列 coverage 和多份 live ledger；用 Claim registry + Verification Units + validator 降低状态漂移。
 - 保留一个语义模型，不另建“简化模式”；普通审计只是省略未触发的高级字段。
 - **按档位加载模块，而不是按档位改规则**：标准档不读 `fix-verification.md`、不物化 `fixWorkflow` / `scopeCoverage` / `exploration` / `independentValidationRequiredFor`。档位只决定加载范围，任何档位下已物化的对象都遵守同一套校验，validator 也不区分档位。
-- **用最小模板代替精简协议**：可选字段本身不是负担，前提是没人逼你填满它。§3.1.1 的模板让"少写"成为默认路径，而不是要求每个人记住哪些字段能省。
+- **用最小模板代替精简协议**：可选字段本身不是负担，前提是没人逼你填满它。`references/audit-ledger.md` §3.1.3 的模板让"少写"成为默认路径，而不是要求每个人记住哪些字段能省。
 - 自动发现仍由客户端决定，但 frontmatter 已收窄到高风险或明确交叉验证请求，避免普通 review 被重型协议误触发。

@@ -77,7 +77,7 @@ Deliverable: <问题报告、追溯报告、修复验证或 Gate 报告>
 
 ### 术语速查与原则的关系
 
-术语表消除"这个词到底指什么"的歧义；正误示例消除"这条规则怎么做算对"的歧义。两者都只是**解释**，不改变任何校验规则——`state.json` 的合法组合只以 [audit-ledger.md](references/audit-ledger.md) 和 validator 为准。
+术语表消除"这个词到底指什么"的歧义；正误示例消除"这条规则怎么做算对"的歧义。两者都只是**解释**，不改变任何校验规则——`state.json` 的合法组合只以 [audit-ledger.md](references/audit-ledger.md) 和 validator 为准；跨文件的表述冲突也按同一优先级裁决。
 
 ## 3. 权限与证据边界
 
@@ -120,15 +120,16 @@ validator 检查结构、引用、状态组合和 Gate 是否过强，不证明�
 python -B <skill-root>/scripts/audit_state.py init <dir> --id X --target T --scope S --objectives O...
 python -B <skill-root>/scripts/audit_state.py bind <dir>          # 给所有被引用 artifact 打 auditBinding
 python -B <skill-root>/scripts/audit_state.py bind <dir> --check  # 只报告不修改
+python -B <skill-root>/scripts/audit_state.py bind <dir> --artifact <file> # 只处理指定文件
 python -B <skill-root>/scripts/audit_state.py lint <dir>          # 机械一致性检查，只读
 python -B <skill-root>/scripts/audit_state.py verify <dir>        # 转调 validator
 ```
 
-`init` 生成最小骨架（含 `scopeMode` / `basis` / `assumption` 等契约字段）；`bind` 在每份 artifact 落盘后同步归属绑定；`lint` 只读报告 id 前缀、`reconciliations` 与 hypotheses 的镜像关系、`sourceHypotheses` 双向一致等问题，可在跑 validator 之前先用。
+`init` 生成最小骨架（含 `scopeMode` / `basis` / `assumption` 等契约字段）。安全审计或修复验证用 `--profile security` / `--profile fix-verification` 追加 profile（`general` 恒存在且只出现一次，重复传参自动去重），省去手工编辑 `objectiveProfiles`；`bind` 在每份 artifact 落盘后同步归属绑定；`lint` 只读报告 id 前缀、`reconciliations` 与 hypotheses 的镜像关系、`sourceHypotheses` 双向一致等问题，可在跑 validator 之前先用。
 
 `bind` 有一条**不自动化**的规则：遇到已存在但不匹配的 `auditBinding` 时默认拒绝覆盖——那说明证据属于另一次审计或另一个 snapshot，必须重新取证，重新打标只会把旧证据洗白成当前证据。确需覆盖时显式加 `--force`。
 
-**它们不替代 validator**：合法性仍只由 validator 裁决，没有 Python 时照 §3.1.1 的最小模板手写即可。
+**它们不替代 validator**：合法性仍只由 validator 裁决，没有 Python 时照 `references/audit-ledger.md` §3.1.3 的最小模板手写即可。
 
 ## 5. 建立风险地图并派发
 
@@ -142,7 +143,7 @@ Risk claim → verification method → executor
 2. 每种验证方法在 `verificationUnits[]` 建独立 `R<n>` 并引用 `claimId`；不要在每个单元复制主张、后果、优先级和 Gate。
 3. `REQUIRED` 是完成任务契约、最高风险异质验证或收口 material gap 所必需的主张；只有义务外搜索才是 `EXPLORATORY`，不得携带 `gateTargets`。探索产生 Gate 完成义务时另建 REQUIRED Claim。
 4. `highest` 主张先写 Safe prediction、Failure prediction、Discriminating observation 和 Sufficiency criterion，并至少使用两个不同 archetype；`high` 只要求最小判别观察和充分性标准；`normal` 不为形式展开判别计划。Sufficiency 是主代理汇总所有 Unit Evidence 后对 Claim 的裁决，只在 Claim 写一次。
-5. 方法异质性和执行者独立性分开：同一执行者使用不同方法可满足异质性，但不能声称 independent validation。只有不同执行者、不同方法且相关单元实际 `isolation=ISOLATED` 才可声称独立验证。
+5. 方法异质性和执行者独立性分开：同一执行者使用不同方法可满足异质性，但不能声称 independent validation。独立验证的成立判据见 [audit-ledger.md](references/audit-ledger.md) §3.4（权威）——除不同执行者、不同方法且实际 `isolation=ISOLATED` 外，还须先满足上一条的异质覆盖。本文件不重复该判据。
 6. 没有明确独立验证硬要求时，优先把最高风险的异质单元交给不同隔离执行者；已计划为隔离但实际成为 `NOT-ISOLATED` 时，能力允许先隔离重跑，客观没有合格执行者时才用单执行者异质方法收口并披露限制。存在 `independentValidationRequiredFor` 时，能力不足意味着相应结论/Gate 不完整，披露不能替代完成。
 7. 子代理任务必须有有界范围、指定方法、允许检查、唯一 investigation 接收路径和截止条件。Gate 策略、风险接受、其他调查者判断和主代理预期答案不传给调查者。普通发现/Decision challenge 不提供既有 Finding 或拟修复；专门用于 resolution/fix verification 的 Unit 可接收 canonical Finding statement、PRE-fix failure、精确 POST-fix diff 和验收条件，但仍不得接收实现者结论、其它复核结果或主代理对修复成败的预期。
 

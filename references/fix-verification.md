@@ -72,7 +72,7 @@
 
 ## 5. 异质方法复核
 
-为每个受影响子系统先从原 Finding 风险面选择**至少一种与原主要发现不同的验证 archetype**。不同只读执行者只有在未参与实现、未读取其他复核结果且相关 Verification Unit 实际 `isolation=ISOLATED` 时，才形成 independent validation；执行者分配、有界降级与强制独立验证按 `SKILL.md` §5。resolution/fix verification 按 auditor persona 的专用隔离边界，可以提供 canonical Finding→修复映射、精确 diff、验收标准、基线失败和模式范围，但不得提供实现者结论、其它复核结果或预期答案；这种目标知情不等于 `NOT-ISOLATED`。Critical/High 修复不得只换一个代理重复 patch review；优先选择能直接区分 PRE-fix/POST-fix 的 `user-path-trace`、`test-discrimination`、`state-invariant-analysis` 或其它适配方法。该修复复核最终写入 Finding verification 的 `resolutionChallenge`，并引用真实 verified Unit；它不同于判断原问题是否成立的 `challenge`，两者不得互相替代。要求复核者回答：
+为每个受影响子系统先从原 Finding 风险面选择**至少一种与原主要发现不同的验证 archetype**。independent validation 的完整判据见 [audit-ledger.md](audit-ledger.md) §3.4（权威）；在本环节它额外要求复核者未参与实现、未读取其他复核结果，且相关 Verification Unit 实际 `isolation=ISOLATED`。执行者分配、有界降级与强制独立验证按 `SKILL.md` §5。resolution/fix verification 按 auditor persona 的专用隔离边界，可以提供 canonical Finding→修复映射、精确 diff、验收标准、基线失败和模式范围，但不得提供实现者结论、其它复核结果或预期答案；这种目标知情不等于 `NOT-ISOLATED`。Critical/High 修复不得只换一个代理重复 patch review；优先选择能直接区分 PRE-fix/POST-fix 的 `user-path-trace`、`test-discrimination`、`state-invariant-analysis` 或其它适配方法。该修复复核最终写入 Finding verification 的 `resolutionChallenge`，并引用真实 verified Unit；它不同于判断原问题是否成立的 `challenge`，两者不得互相替代。要求复核者回答：
 
 - 原 Finding 是否真正消失，直接证据是什么？
 - 所有已确认同类实例是否处理，排除项是否安全？

@@ -76,7 +76,7 @@ Test issue: ENCODES_FAILURE / MISSING_REGRESSION / —
 2. 每个现实风险写成一个可判定 Claim，集中保存到 `state.json.claims[]`：稳定 id、义务、风险面、陈述、失败后果、优先级和有界范围。`highest` 表示判断错误可能直接改变 Gate 或造成重大损害，`high` 表示明确重要影响，`normal` 表示其它相关风险。优先级不是 Finding Severity，也不因 Gate 阈值或风险接受而降低。
 3. `highest` Claim 写完整 `Safe prediction / Failure prediction / Discriminating observation / Sufficiency criterion`；`high` 只写最小判别观察和充分性标准，避免把四项计划复制到普通重要风险。标准必须与风险相称，不能因当前环境拿不到证据而降低。计划不是 Evidence；实际观察才编号成 E。
 4. 每种方法写成独立 `verificationUnits[]` 记录并引用 Claim，不复制 Claim 字段。每个 highest Claim 至少两个 verified REQUIRED Unit 使用不同 archetype；主代理汇总所有 Unit 的 DIRECT Evidence 后，只在 Claim 定稿一次 `sufficiency=MET|NOT-MET`。
-5. 方法异质与执行者独立分开。同一执行者的不同方法可满足异质性；只有不同 executor、不同 method 且相关 Unit 实际 `isolation=ISOLATED` 才是 independent validation。没有明确独立验证硬要求时，能力不足可用方法级验证收口并披露限制；存在硬要求时相应结论保持不完整。
+5. 方法异质与执行者独立分开。同一执行者的不同方法可满足异质性，但**不构成** independent validation——独立验证还要求先满足上一条的异质覆盖（highest Claim 至少两个 verified REQUIRED Unit 使用不同 archetype），完整判据见 [audit-ledger.md](audit-ledger.md) §3.4（权威）。没有明确独立验证硬要求时，能力不足可用方法级验证收口并披露限制；存在硬要求时相应结论保持不完整。
 6. 不同调查者可以共享 baseline、scope、术语、公共入口、changed files 等 DIRECT 事实；若共享了前一路径的 Hypothesis/Finding/Decision 或解释性结论，就不能把该 Unit 标为 ISOLATED。两个执行者用同一 archetype、同一证据路径仍只算冗余复核。
 7. 所有准备提升为 Finding 的 material Hypothesis 都先完成最小 disconfirmation；暂定 Critical/High 的 Finding 在 Decision 前规划/尝试第二种异质 archetype 或等价直接反证。assessment model 决定裁决前提；本模块不为凑形式复制代理。
 8. 一个执行者可以承担多个 normal Unit，一个 Claim 也可以由多个 Unit 覆盖；不要求每个风险面使用所有 archetype，选择最少但足以区分关键失败模式的方法集合。

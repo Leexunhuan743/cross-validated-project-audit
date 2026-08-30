@@ -20,7 +20,7 @@ from pathlib import Path
 SCRIPT_DIR = Path(__file__).resolve().parent
 sys.path.insert(0, str(SCRIPT_DIR))
 
-from audit_state import main  # noqa: E402
+from audit_state import main, resolve_inside  # noqa: E402
 from validate_audit_state import validate_state  # noqa: E402
 
 FIXTURES = SCRIPT_DIR / "fixtures"
@@ -148,6 +148,24 @@ class AuditStateTests(unittest.TestCase):
         self.assertEqual(1, code)
         self.assertIn("must match", out)
 
+    def test_init_profile_adds_an_extra_objective_profile(self) -> None:
+        """SKILL.md asks security / fix-verification audits to add a profile."""
+        target = self.raw / "profiled"
+        code, out = self.run_helper(*self.init_args(target, profile="security"))
+        self.assertEqual(0, code, out)
+        state = json.loads((target / "state.json").read_text(encoding="utf-8"))
+        self.assertEqual(["general", "security"], state["audit"]["objectiveProfiles"])
+
+    def test_init_profile_is_deduplicated_and_general_appears_once(self) -> None:
+        """A repeated --profile must not create the duplicate the validator rejects."""
+        target = self.raw / "deduped"
+        args = self.init_args(target)
+        args += ["--profile", "security", "--profile", "security", "--profile", "general"]
+        code, out = self.run_helper(*args)
+        self.assertEqual(0, code, out)
+        state = json.loads((target / "state.json").read_text(encoding="utf-8"))
+        self.assertEqual(["general", "security"], state["audit"]["objectiveProfiles"])
+
     # bind ------------------------------------------------------------------
 
     def test_bind_accepts_an_already_matching_binding(self) -> None:
@@ -231,6 +249,32 @@ class AuditStateTests(unittest.TestCase):
         audit_id = self.state()["audit"]["id"]
         for path in self.artifact_paths():
             self.assertEqual(audit_id, self.read_artifact(path)["auditBinding"]["auditId"])
+
+    # path safety ----------------------------------------------------------
+
+    def test_bind_artifact_rejects_an_absolute_path_outside_the_state_root(self) -> None:
+        """An absolute --artifact must be checked, not trusted and written to."""
+        outside = self.raw / "outside-artifact.json"
+        original = {"unitId": "R1"}
+        outside.write_text(json.dumps(original), encoding="utf-8")
+
+        with self.assertRaises(SystemExit) as ctx:
+            self.run_helper("bind", str(self.dir), "--artifact", str(outside.resolve()), "--force")
+        self.assertIn("escapes the audit directory", str(ctx.exception))
+        self.assertEqual(original, json.loads(outside.read_text(encoding="utf-8")))
+
+    def test_resolve_inside_refuses_to_follow_a_symlink(self) -> None:
+        """The validator has the full symlink/junction check; this is the light guard."""
+        target = self.artifact_paths()[0]
+        link = self.dir / "investigations" / "linked.json"
+        try:
+            link.symlink_to(target)
+        except (OSError, NotImplementedError):
+            self.skipTest("symlinks cannot be created in this environment")
+
+        with self.assertRaises(SystemExit) as ctx:
+            resolve_inside(self.dir, "investigations/linked.json")
+        self.assertIn("refusing to follow a symlink", str(ctx.exception))
 
     # lint ------------------------------------------------------------------
 

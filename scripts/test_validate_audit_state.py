@@ -61,6 +61,8 @@ class SemanticInvariantTests(unittest.TestCase):
             f"expected error containing {fragment!r}; got:\n" + "\n".join(errors),
         )
 
+    # gate decision and basis -----------------------------------------------
+
     def test_active_state_cannot_cache_gate_decision(self) -> None:
         errors = self.mutated_errors(
             "valid-release-gate",
@@ -1695,6 +1697,8 @@ class SemanticInvariantTests(unittest.TestCase):
         errors = self.mutated_errors("valid-release-gate", mutate)
         self.assert_error_contains(errors, "authorization.text: must not be empty")
 
+    # fixture self-test -----------------------------------------------------
+
     def test_missing_self_test_directory_reports_clean_failure(self) -> None:
         with tempfile.TemporaryDirectory(prefix="cvpa-missing-fixtures-") as raw:
             missing = Path(raw) / "missing"
@@ -1724,6 +1728,8 @@ class SemanticInvariantTests(unittest.TestCase):
                 code = run_self_test(fixtures)
             self.assertEqual(code, 1)
             self.assertIn("missing expected error fragments", output.getvalue())
+
+    # decision history ------------------------------------------------------
 
     def test_decision_history_accepts_valid_entries(self) -> None:
         def mutate(state: dict) -> None:
@@ -1772,6 +1778,8 @@ class SemanticInvariantTests(unittest.TestCase):
         errors = self.mutated_errors("valid-release-gate", mutate)
         self.assert_error_contains(errors, "must not be empty")
 
+    # optional protocol fields ---------------------------------------------
+
     def test_pattern_scope_is_optional(self) -> None:
         def mutate(state: dict) -> None:
             del state["findings"][0]["patternScope"]
@@ -1797,6 +1805,34 @@ class SemanticInvariantTests(unittest.TestCase):
 
         errors = self.mutated_errors("valid-release-gate", mutate)
         self.assert_error_contains(errors, "expected array")
+
+    # reporting hygiene -----------------------------------------------------
+
+    def test_uncleaned_probes_are_reported_once(self) -> None:
+        """The probe check used to run twice, doubling the error count."""
+
+        def add_probe(target: Path) -> None:
+            (target / "probes").mkdir(exist_ok=True)
+            (target / "probes" / "scratch.txt").write_text("junk", encoding="utf-8")
+
+        errors = self.mutated_errors("valid-ordinary-no-gate", mutate_files=add_probe)
+        matching = [error for error in errors if "FINAL audit must clean temporary probes" in error]
+        self.assertEqual(1, len(matching), f"probes reported {len(matching)} times:\n" + "\n".join(errors))
+
+    def test_unfinished_temporary_state_is_reported_once(self) -> None:
+        """It used to trip both the layout allowlist and the dedicated check."""
+
+        def add_temp(target: Path) -> None:
+            (target / "state.json.bak").write_text("{}", encoding="utf-8")
+
+        errors = self.mutated_errors("valid-ordinary-no-gate", mutate_files=add_temp)
+        matching = [error for error in errors if "state.json" in error and "temporary" in error]
+        self.assertEqual(1, len(matching), f"temporary state reported {len(matching)} times:\n" + "\n".join(errors))
+        # the layout allowlist must not also flag it as an unsupported entry
+        self.assertFalse(
+            any("unsupported state-directory entry" in error for error in errors),
+            "temporary state file is also flagged by the layout allowlist:\n" + "\n".join(errors),
+        )
 
 
 if __name__ == "__main__":

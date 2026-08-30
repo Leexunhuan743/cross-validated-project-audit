@@ -1,12 +1,15 @@
 {
-  "_note": "本文件只是 `validate_audit_state.py --self-test` 的轻量 fixture 自测清单：仅记录每个 invalid-* 目录必须出现的预期错误片段，用于快速 sanity check。它不表示完整测试覆盖——完整的协议不变量覆盖由 scripts/test_validate_audit_state.py（90 个 unittest，含 mutation 测试）提供。新增 fixture 时，valid-* 无需在此登记，invalid-* 只需在此列出至少一条预期错误片段。",
+  "_note": "本文件只是 `validate_audit_state.py --self-test` 的轻量 fixture 自测清单：记录每个 invalid-* 目录必须出现的预期错误片段，以及可选的精确错误条数。它不表示完整测试覆盖——协议不变量覆盖由 scripts/test_validate_audit_state.py（101 个 unittest，含 mutation 测试）提供，状态辅助脚本的覆盖另由 scripts/test_audit_state.py（32 个）提供。用 `python -B -m unittest discover -s scripts` 一次跑完全部 133 个。新增 fixture 时，valid-* 无需在此登记，invalid-* 只需在此列出至少一条预期错误片段。可选地为 invalid-* 配一条 `<目录名>.error_count` 精确钉住错误条数——片段检查只判断子串是否出现，同一条错误被重复输出时它仍会 PASS，只有钉住条数才能抓到这类回归。",
   "invalid-disposition-combination": [
     "explicit disposition is allowed only for CONFIRMED findings"
   ],
+  "invalid-disposition-combination.error_count": 1,
   "invalid-empty-gate-coverage": [
     "declared READY, but state derives INCOMPLETE"
   ],
+  "invalid-empty-gate-coverage.error_count": 3,
   "invalid-ready-with-insufficient-evidence": [
     "declared READY, but state derives INCOMPLETE"
-  ]
+  ],
+  "invalid-ready-with-insufficient-evidence.error_count": 1
 }

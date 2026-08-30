@@ -965,6 +965,9 @@ def validate_live_layout(
         return
     for entry in entries:
         if entry.name not in allowed_entries:
+            if entry.name.startswith("state.json.") and entry.is_file():
+                # reported once by the dedicated unfinished-temporary-state check
+                continue
             v.error(entry.name, "unsupported state-directory entry; use state.json metadata or an approved probe")
             continue
         if is_link_like(entry):
@@ -1043,13 +1046,6 @@ def validate_state(state_path: Path) -> Validation:
     temporary_states = sorted(path.name for path in root.glob("state.json.*") if path.is_file())
     if temporary_states:
         v.error("state.json", f"unfinished temporary state files remain: {temporary_states}")
-    probes = root / "probes"
-    if phase == "FINAL" and probes.is_dir():
-        try:
-            if any(probes.iterdir()):
-                v.error("probes", "FINAL audit must clean temporary probes")
-        except OSError as exc:
-            v.error("probes", f"cannot inspect temporary probes: {exc}")
 
     requested_gates: set[str] = set()
     gate_decisions: dict[str, Any] = {}
@@ -1404,6 +1400,14 @@ def validate_state(state_path: Path) -> Validation:
     units_by_claim: dict[str, list[dict[str, Any]]] = {}
     investigation_paths: dict[str, Path] = {}
     terminal_unit_residuals: list[tuple[str, str]] = []
+    # Pass-one markers: the second units/findings passes below consume state
+    # that only exists once these loops have run. They are plain booleans
+    # rather than "is the dict non-empty" checks, because an audit with zero
+    # units or findings is perfectly legal and must not trip the guard.
+    units_pass_one_done = False
+    findings_pass_one_done = False
+    verification_pass_done = False
+
     for index, item in enumerate(units):
         path = f"state.json.verificationUnits[{index}]"
         if not isinstance(item, dict):
@@ -1499,6 +1503,11 @@ def validate_state(state_path: Path) -> Validation:
         elif investigation is not None:
             v.error(f"{path}.investigationFile", "allowed only after an investigation has reported")
 
+    units_pass_one_done = True
+
+    # Second units pass: load investigations only after every unit id, claimId
+    # and method is known, so an artifact can be checked against its unit.
+    assert units_pass_one_done, "second units pass ran before the structural units pass"
     for index, item in enumerate(units):
         if isinstance(item, dict) and isinstance(item.get("id"), str) and item["id"] in investigation_paths:
             validate_investigation(v, investigation_paths[item["id"]], item, index)
@@ -1770,10 +1779,16 @@ def validate_state(state_path: Path) -> Validation:
         if file_path is not None and isinstance(finding_id, str):
             verification_paths[finding_id] = file_path
 
+    findings_pass_one_done = True
+
     for finding_id, path in verification_paths.items():
         validate_verification(v, path, finding_id)
+    verification_pass_done = True
 
     # Cross-file references are checked after all referenced artifacts are loaded.
+    assert (
+        units_pass_one_done and findings_pass_one_done and verification_pass_done
+    ), "cross-file checks ran before the structural passes or verification load"
     reconciled_to_finding: dict[str, set[str]] = {}
     reconciled_evidence_to_finding: dict[str, set[str]] = {}
     residual_references: list[tuple[str, str]] = []
@@ -1842,6 +1857,12 @@ def validate_state(state_path: Path) -> Validation:
             residual_ref = rec.get("residualRiskId")
             if rec.get("result") == "RESIDUAL-GAP" and isinstance(residual_ref, str):
                 residual_references.append((f"{path}.residualRiskId", residual_ref))
+    # Second findings pass: every cross-file check lives here because it needs
+    # the complete evidence/hypothesis sets, and validate_verification() runs
+    # later than the first findings pass. Adding a cross-file check to the first
+    # pass will silently see an incomplete v.evidence and produce false errors
+    # -- that is exactly what happened to the decisionHistory reference check.
+    assert verification_pass_done, "second findings pass ran before verification files were loaded"
     finding_evidence_sets: dict[str, set[str]] = {}
     for index, item in enumerate(findings):
         if not isinstance(item, dict):
@@ -2545,13 +2566,35 @@ def run_self_test(fixtures: Path) -> int:
                 and fragment
                 and not any(fragment in error for error in result.errors)
             ]
-        if actual_valid != expected_valid or malformed_expectation or missing_expected:
+        # Optional error-count pin: a fixture may declare "<case>.error_count".
+        # The fragment check only asks "is this substring present", so it keeps
+        # PASSing when a change starts emitting the same error twice -- which is
+        # exactly how the duplicated probes error stayed hidden. Pinning the
+        # exact count turns that class of regression into a hard failure.
+        expected_count = (
+            expectations.get(f"{case.name}.error_count")
+            if not expected_valid
+            else None
+        )
+        count_mismatch = (
+            isinstance(expected_count, int)
+            and not isinstance(expected_count, bool)
+            and len(result.errors) != expected_count
+        )
+        if (
+            actual_valid != expected_valid
+            or malformed_expectation
+            or missing_expected
+            or count_mismatch
+        ):
             failures += 1
             print(f"SELF-TEST FAIL {case.name}: expected {'valid' if expected_valid else 'invalid'}")
             if malformed_expectation:
                 print("  ERROR invalid fixture requires a non-empty expected-error fragment list")
             if missing_expected:
                 print(f"  ERROR missing expected error fragments: {missing_expected}")
+            if count_mismatch:
+                print(f"  ERROR expected {expected_count} errors, got {len(result.errors)}")
             for error in sorted(result.errors):
                 print(f"  ERROR {error}")
         else:

@@ -46,6 +46,10 @@ audit-only 默认不得修改 `.gitignore`、`.git/info/exclude` 或其它 Git m
 
 ### 3.1 顶层与任务契约
 
+本节分三层：**§3.1.1** 写任何 `state.json` 都要读；**§3.1.2** 全是条件字段，不触发就整段跳过，不必预读；**§3.1.3** 给了一份可直接照抄的最小模板。
+
+#### 3.1.1 必读：顶层结构与必填字段
+
 最小结构：
 
 ```json
@@ -78,7 +82,6 @@ audit-only 默认不得修改 `.gitignore`、`.git/info/exclude` 或其它 Git m
 - `availableEvidence` 是**可选的**证据类型清单，只供主代理判断"能取到什么证据"时参考。它不参与任何校验，也从不影响 Gate 或 Decision；省略即可，不要为填满字段而写。
 - `objectiveProfiles` 必须包含且只包含一次 `general`；适用时再加入 `security` / `fix-verification`。`scopeResolution` 的来源选择、候选和询问规则由 [SKILL.md 的 Scope Resolution Protocol](../SKILL.md#scope-resolution-protocol) 唯一定义；`scopeResolution.assumption` 只在 `basis=ASSUMED` 时创建。
 - 协议对象默认闭合。只有每个支持位置的可选 `metadata` 对象可保存非语义、工具私有且 JSON 可表示的附加信息；其内容不能新增、覆盖或参与 task contract、Evidence、Finding、Gate 或恢复语义。未知协议字段一律是校验错误。
-- 默认 Gate 阻断阈值为 High。用户要更严格时，在对应 target 写 `policies.<target>.blockAtOrAbove=Medium|Low`；不支持自由文本 `audit.riskTolerance`。其它可判定完成条件转成 REQUIRED Claim；无法归一时记录 material residual risk，并使相关 Gate 为 INCOMPLETE。无 Gate 的 FINAL 同样至少要有一个 REQUIRED Claim：非空 objectives 不能由零个验证对象真空收口；尚未形成可验证风险主张时保持 ACTIVE，或用受限状态与 residual risk 如实交付。
 - `audit.snapshot` 始终存在。Git base/head、archive hash、部署版本等不可变身份写入其中；ACTIVE 在身份尚未形成时必须显式写 `null`，每个 FINAL 必须写不可变 identity，使结论不会被错用到漂移工件。非 null 形状是以 `kind` 区分的有界联合：
 
 ```json
@@ -89,22 +92,24 @@ audit-only 默认不得修改 `.gitignore`、`.git/info/exclude` 或其它 Git m
 {"kind": "other", "identity": "<non-empty-immutable-identity>"}
 ```
 
-`git.base` 与 `git-worktree.base` 可为 null；每种 kind 不得混入其它变体的字段。不能用分支名、“当前部署”等可漂移别名充当不可变身份。`git-worktree` 用于未提交工作树：`base/head` 固定 PRE/POST 时点的 Git HEAD，两个 SHA-256 固定对应时点的确定性内容 manifest。manifest 必须覆盖约定 scope 内的 tracked、staged、unstaged 和适用 untracked 文件，并结构化记录排除项；不得通过创建未授权 commit 或写 Git object database 来伪造身份。
-- 用户明确穷尽或自定义停止条件时写 `audit.stop={policy, criteria?, reason?}`；`reason` 存在时必须是非空状态事实，供报告披露实际停止依据；默认停止规则不物化。`policy=exhaustive` 还是硬完成义务，必须同时创建 `audit.scopeCoverage`：
+`git.base` 与 `git-worktree.base` 可为 null；每种 kind 不得混入其它变体的字段。不能用分支名、“当前部署”等可漂移别名充当不可变身份。`git-worktree` 变体的 manifest 规则见 §3.1.2「未提交修复与 audit-and-fix」。
 
-```json
-{
-  "scopeCoverage": {
-    "snapshot": {"kind": "git", "base": null, "head": "<immutable-head>"},
-    "declaredMembers": ["README.md", "src/main.go"],
-    "completedMembers": ["README.md", "src/main.go"],
-    "excludedMembers": [{"member": "dist/app.bin", "reason": "generated binary; inspected through source/build coverage"}]
-  }
-}
-```
+- `auditBinding`：每个 investigation/verification JSON 顶层必须包含 `auditBinding={auditId,snapshot}`；其中 `auditBinding.auditId == state.json.audit.id`，且 `auditBinding.snapshot` 与 `state.json.audit.snapshot` 深度相等，不比较 audit 的其它字段。ACTIVE 尚无 snapshot 时明确写 `snapshot:null`。更换 auditId 或实质更换 snapshot 后必须重新取证并写新绑定，不能只复制旧 artifact。唯一例外是同一任务契约从 `snapshot:null` 填入刚形成的最终不可变身份：主代理必须先证明取证期间目标没有契约外漂移，再把所有仍适用 artifact 的 binding 与 state 在同一次收口中更新；无法证明就接替或重跑。`auditBinding` 是防止误消费的结构化归属声明，不是证明“确实执行过”的密码学凭据。
 
-`declaredMembers` 必须非空、去重；每个 completed/excluded member 必须来自 declared，二者不得重叠，排除项必须有非空原因，`scopeCoverage.snapshot` 必须与当前 audit snapshot 完全一致。FINAL 时 declared 的每个成员都必须 completed 或明确 excluded，且至少一个成员 completed。客观无法完成时，可在 FINAL 写 `residualRiskId` 指向 material residual risk；有 Gate 时该 residual 必须影响全部请求 target：已有确认 blocker 时仍按优先级为 `BLOCKED` 并披露覆盖缺口，否则为 `INCOMPLETE`。无 Gate 时报告不得声称 clean conclusion。没有 exhaustive 要求时省略整个 `scopeCoverage`。
-- 用户、适用组织策略或已请求 Gate 明确要求 independent validation 时，写非空去重数组 `audit.independentValidationRequiredFor`；成员只允许 `AUDIT` 或 `audit.gates.targets` 中的实际 target。`AUDIT` 约束所有 highest Claim，且不得与 target 成员混用；多个 target 可写为如 `["RELEASE", "SYSTEM"]`。没有硬要求时省略。
+#### 3.1.2 条件字段（按需物化，不触发就整段跳过）
+
+| 触发条件 | 读哪一组 |
+|---|---|
+| 用户请求了合并、发布或系统就绪判断 | Gate |
+| 用户要求穷尽或自定义了停止条件 | 穷尽覆盖 |
+| 用户、组织策略或已请求 Gate 强制独立验证 | 独立验证 |
+| 发生契约外实质变化、需冻结旧实例另起新实例 | 接替 |
+| 存在未提交修复，或 `executionMode=audit-and-fix` | 未提交修复与 audit-and-fix |
+
+**Gate**（`gates` 的字段结构在本节；结果如何推导见 [reporting.md](reporting.md) §4）
+
+- 默认 Gate 阻断阈值为 High。用户要更严格时，在对应 target 写 `policies.<target>.blockAtOrAbove=Medium|Low`；不支持自由文本 `audit.riskTolerance`。其它可判定完成条件转成 REQUIRED Claim；无法归一时记录 material residual risk，并使相关 Gate 为 INCOMPLETE。无 Gate 的 FINAL 同样至少要有一个 REQUIRED Claim：非空 objectives 不能由零个验证对象真空收口；尚未形成可验证风险主张时保持 ACTIVE，或用受限状态与 residual risk 如实交付。
+
 - 只有真实 Gate 存在时创建：
 
 ```json
@@ -133,6 +138,29 @@ audit-only 默认不得修改 `.gitignore`、`.git/info/exclude` 或其它 Git m
 | `REQUIRED-COVERAGE-GAP` | 当前 target 没有任何 Gate-scoped REQUIRED Claim |
 | `EXHAUSTIVE-COVERAGE-GAP` | `exhaustive` 的 scope inventory 未闭合 |
 
+**穷尽覆盖**
+
+- 用户明确穷尽或自定义停止条件时写 `audit.stop={policy, criteria?, reason?}`；`reason` 存在时必须是非空状态事实，供报告披露实际停止依据；默认停止规则不物化。`policy=exhaustive` 还是硬完成义务，必须同时创建 `audit.scopeCoverage`：
+
+```json
+{
+  "scopeCoverage": {
+    "snapshot": {"kind": "git", "base": null, "head": "<immutable-head>"},
+    "declaredMembers": ["README.md", "src/main.go"],
+    "completedMembers": ["README.md", "src/main.go"],
+    "excludedMembers": [{"member": "dist/app.bin", "reason": "generated binary; inspected through source/build coverage"}]
+  }
+}
+```
+
+`declaredMembers` 必须非空、去重；每个 completed/excluded member 必须来自 declared，二者不得重叠，排除项必须有非空原因，`scopeCoverage.snapshot` 必须与当前 audit snapshot 完全一致。FINAL 时 declared 的每个成员都必须 completed 或明确 excluded，且至少一个成员 completed。客观无法完成时，可在 FINAL 写 `residualRiskId` 指向 material residual risk；有 Gate 时该 residual 必须影响全部请求 target：已有确认 blocker 时仍按优先级为 `BLOCKED` 并披露覆盖缺口，否则为 `INCOMPLETE`。无 Gate 时报告不得声称 clean conclusion。没有 exhaustive 要求时省略整个 `scopeCoverage`。
+
+**独立验证**
+
+- 用户、适用组织策略或已请求 Gate 明确要求 independent validation 时，写非空去重数组 `audit.independentValidationRequiredFor`；成员只允许 `AUDIT` 或 `audit.gates.targets` 中的实际 target。`AUDIT` 约束所有 highest Claim，且不得与 target 成员混用；多个 target 可写为如 `["RELEASE", "SYSTEM"]`。没有硬要求时省略。是否成立按 §3.4 的机械判据认定。
+
+**接替**
+
 权威 target、scope、snapshot、objectives、决策问题或 shared facts 发生会使旧 Evidence 失效的**契约外**实质变化时，不在原实例里重开。创建新 ACTIVE 实例，并建立双向接替链：
 
 新实例的 `audit` 增加：
@@ -147,15 +175,19 @@ audit-only 默认不得修改 `.gitignore`、`.git/info/exclude` 或其它 Git m
 {"supersession": {"byAuditId": "new-audit-id", "reason": "<material invalidation>", "at": "<ISO8601>"}}
 ```
 
-一个旧实例只能有一个直接后继，链不得成环。新实例只复用可重新观察的调查线索，不把旧 Unit 的 verified、Decision、Disposition、风险接受或 Gate 复制成 live 结论。每个 investigation/verification JSON 顶层必须包含 `auditBinding={auditId,snapshot}`；其中 `auditBinding.auditId == state.json.audit.id`，且 `auditBinding.snapshot` 与 `state.json.audit.snapshot` 深度相等，不比较 audit 的其它字段。ACTIVE 尚无 snapshot 时明确写 `snapshot:null`。更换 auditId 或实质更换 snapshot 后必须重新取证并写新绑定，不能只复制旧 artifact。唯一例外是同一任务契约从 `snapshot:null` 填入刚形成的最终不可变身份：主代理必须先证明取证期间目标没有契约外漂移，再把所有仍适用 artifact 的 binding 与 state 在同一次收口中更新；无法证明就接替或重跑。`auditBinding` 是防止误消费的结构化归属声明，不是证明“确实执行过”的密码学凭据。
+一个旧实例只能有一个直接后继，链不得成环。新实例只复用可重新观察的调查线索，不把旧 Unit 的 verified、Decision、Disposition、风险接受或 Gate 复制成 live 结论。
+
+**未提交修复与 audit-and-fix**
+
+`git-worktree` 用于未提交工作树：`base/head` 固定 PRE/POST 时点的 Git HEAD，两个 SHA-256 固定对应时点的确定性内容 manifest。manifest 必须覆盖约定 scope 内的 tracked、staged、unstaged 和适用 untracked 文件，并结构化记录排除项；不得通过创建未授权 commit 或写 Git object database 来伪造身份。
 
 `executionMode=audit-and-fix` 是唯一需预先表达工件转换的情形：初始 Task Contract 把 target 写成有界 PRE-fix → POST-fix 转换，明确允许路径与验收条件。已提交 Git PRE/POST 用 `kind=git` 的 `base/head`；没有授权 commit 或任一端含相关未提交内容时用 `kind=git-worktree` 的 PRE/POST HEAD 与内容 manifest。ACTIVE 期间身份尚未形成时 snapshot 保持显式 `null`，FINAL 报告前必须填入可复核的最终身份。在允许路径内完成该已声明转换是同一契约的执行，不触发 supersession；超出允许路径、更换基线/目标或外部变更使 Evidence 失效时仍必须接替。
 
-### 3.1.1 最小可运行模板：照抄起步，别凭印象填满
+### 3.1.3 最小可运行模板：照抄起步，别凭印象填满
 
 本协议有大量可选字段。写状态时最常见的错误不是漏填，而是**照着完整 schema 把可选字段一起填满**——`patternScope` 尤其典型（没做同类搜索却被填成 `UNKNOWN`，等于没有信息却多一个字段要维护）。
 
-下面这份模板**只含真正必填的字段**，已用 validator 实测通过（0 errors / 0 warnings）。照抄它起步，再按下表按需加字段：
+下面这份模板**只含真正必填的字段**，已用 validator 实测通过（0 errors / 0 warnings）。它包含 `state.json` 与两份配套 artifact（`investigations/R1-a.json`、`verification/F1.json`），**三份一起放在同一个审计目录下**才能通过校验——单独只有 `state.json` 会报 11 个引用错误。三份的 `auditBinding` 都用同一个 `auditId` 与 `snapshot`；把它们改成你的实际 id 即可。
 
 ```json
 {
@@ -228,7 +260,72 @@ audit-only 默认不得修改 `.gitignore`、`.git/info/exclude` 或其它 Git m
 }
 ```
 
-配套的两份 artifact 见 §4（`investigations/R1-a.json`、`verification/F1.json`）。
+`investigations/R1-a.json`：
+
+```json
+{
+  "auditBinding": {"auditId": "minimal-audit", "snapshot": {"kind": "git", "base": null, "head": "0123456789abcdef0123456789abcdef01234567"}},
+  "unitId": "R1",
+  "claimId": "Q1",
+  "method": "implementation-trace",
+  "hypotheses": [
+    {
+      "id": "R1-H1",
+      "statement": "the token parser accepts a malformed bearer token",
+      "potentialImpact": "an attacker reaches an authorized handler",
+      "conditions": "a malformed Authorization header",
+      "counterHypothesis": "an upstream middleware rejects malformed headers first",
+      "expectedSafeBehavior": "the request is rejected before authorization",
+      "evidenceSearched": "the middleware chain and the emitted authorization event",
+      "reasoning": "the parser does not validate the header shape before use",
+      "disconfirmationResult": "counter-refuted",
+      "result": "supported",
+      "recommendation": "promote-to-finding",
+      "evidenceRefs": ["R1-E1"]
+    }
+  ],
+  "evidence": [
+    {
+      "id": "R1-E1",
+      "polarity": "supports",
+      "strength": "ES2",
+      "reproducibility": "not-applicable",
+      "source": "src/auth/token.ts:44",
+      "observation": "the parser accepts a malformed bearer token"
+    }
+  ],
+  "coverageSummary": {
+    "checked": ["src/auth/token.ts"],
+    "verifiedBehaviors": [],
+    "gaps": []
+  }
+}
+```
+
+`verification/F1.json`：
+
+```json
+{
+  "auditBinding": {"auditId": "minimal-audit", "snapshot": {"kind": "git", "base": null, "head": "0123456789abcdef0123456789abcdef01234567"}},
+  "findingId": "F1",
+  "method": "implementation-trace",
+  "checkedEvidence": ["R1-E1"],
+  "evidence": [
+    {
+      "id": "F1-E1",
+      "polarity": "supports",
+      "strength": "ES3",
+      "reproducibility": "repeatable",
+      "source": "src/auth/token.ts:44 re-read by the main agent",
+      "observation": "a malformed token reaches the authorized handler"
+    }
+  ],
+  "conclusion": "the Finding holds under the declared conditions",
+  "limits": []
+}
+```
+
+§4 的 schema 示例用的是不同的 `auditId`（`20260822-auth-review`）；上面的模板已统一为 `minimal-audit`，照抄时不用再改 binding。字段含义与校验规则见 §4。
 
 **照抄模板后，只有以下情形才需要加字段：**
 

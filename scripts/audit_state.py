@@ -34,6 +34,7 @@ SCOPE_MODES = {"project", "change", "pr", "author-commits"}
 SCOPE_BASIS = {"USER", "PLATFORM", "REPOSITORY", "ASSUMED"}
 SCOPE_CONFIDENCE = {"HIGH", "MEDIUM", "LOW"}
 EXECUTION_MODES = {"audit-only", "audit-and-fix"}
+OBJECTIVE_PROFILES = {"general", "security", "fix-verification"}
 SNAPSHOT_KINDS = {"git", "git-worktree", "archive", "deployment", "other"}
 STATE_NAME = "state.json"
 
@@ -49,7 +50,14 @@ def fail(message: str) -> int:
     return 1
 
 
-def load_json(path: Path) -> Any:
+def load_json_or_exit(path: Path) -> Any:
+    """Read JSON or abort the CLI.
+
+    Deliberately not named `load_json`: validate_audit_state.py has a function
+    by that name which records a validation error and returns None so it can
+    keep collecting. Same name, opposite behaviour -- here an unreadable file is
+    fatal because there is no report left to collect errors into.
+    """
     try:
         return json.loads(path.read_text(encoding="utf-8"))
     except OSError as exc:
@@ -86,7 +94,7 @@ def load_state(state_dir: Path) -> dict[str, Any]:
     state_path = state_dir / STATE_NAME
     if not state_path.is_file():
         raise SystemExit(f"ERROR: {state_path} not found; run `init` first")
-    state = load_json(state_path)
+    state = load_json_or_exit(state_path)
     if not isinstance(state, dict):
         raise SystemExit(f"ERROR: {state_path} must contain a JSON object")
     return state
@@ -100,7 +108,13 @@ def expected_binding(state: dict[str, Any]) -> dict[str, Any]:
 
 
 def resolve_inside(state_dir: Path, relative: str) -> Path:
-    candidate = (state_dir / relative).resolve()
+    lexical = state_dir / relative
+    # Light guard only: the validator's is_link_like() is the complete check and
+    # also covers Windows junctions. This just stops `bind` from writing through
+    # a symlink before the validator ever runs.
+    if lexical.is_symlink():
+        raise SystemExit(f"ERROR: refusing to follow a symlink: {relative}")
+    candidate = lexical.resolve()
     try:
         candidate.relative_to(state_dir.resolve())
     except ValueError:
@@ -170,7 +184,10 @@ def cmd_init(args: argparse.Namespace) -> int:
             "objectives": args.objectives,
             "deliverable": args.deliverable,
             "scopeMode": args.scope_mode,
-            "objectiveProfiles": ["general"],
+            # 'general' is always present exactly once; extra profiles come from
+            # --profile and are de-duplicated so a repeated flag cannot produce
+            # the duplicate entry the validator rejects.
+            "objectiveProfiles": ["general"] + sorted(set(args.profile or []) - {"general"}),
             "executionMode": args.execution_mode,
             "scopeResolution": scope_resolution,
             "snapshot": snapshot,
@@ -204,7 +221,7 @@ def stamp_one(path: Path, expected: dict[str, Any], force: bool, check: bool) ->
     """Return (status, message) where status is ok / stale / missing / error."""
     if not path.is_file():
         return "missing", str(path)
-    data = load_json(path)
+    data = load_json_or_exit(path)
     if not isinstance(data, dict):
         return "error", f"{path}: must contain a JSON object"
     existing = data.get("auditBinding")
@@ -233,9 +250,10 @@ def cmd_bind(args: argparse.Namespace) -> int:
     expected = expected_binding(state)
 
     if args.artifact:
-        targets = [Path(args.artifact)]
-        if not targets[0].is_absolute():
-            targets[0] = resolve_inside(state_dir, args.artifact)
+        # Absolute paths must be checked as well: an absolute --artifact is a
+        # path like any other, and skipping the check would let it stamp a
+        # binding onto any file outside the state root.
+        targets = [resolve_inside(state_dir, args.artifact)]
     else:
         targets = [resolve_inside(state_dir, rel)
                    for rel in referenced_artifacts(state, state_dir)]
@@ -297,7 +315,7 @@ def cmd_lint(args: argparse.Namespace) -> int:
         if not path.is_file():
             problems.append(f"{relative}: referenced but missing")
             continue
-        data = load_json(path)
+        data = load_json_or_exit(path)
         if not isinstance(data, dict):
             problems.append(f"{relative}: not a JSON object")
             continue
@@ -314,7 +332,7 @@ def cmd_lint(args: argparse.Namespace) -> int:
         path = resolve_inside(state_dir, relative)
         if not path.is_file():
             continue
-        data = load_json(path)
+        data = load_json_or_exit(path)
         if not isinstance(data, dict):
             continue
         if data.get("unitId") != unit_id:
@@ -381,7 +399,7 @@ def cmd_lint(args: argparse.Namespace) -> int:
         path = resolve_inside(state_dir, relative)
         if not path.is_file():
             continue
-        data = load_json(path)
+        data = load_json_or_exit(path)
         if not isinstance(data, dict):
             continue
         if data.get("findingId") != fid:
@@ -440,6 +458,10 @@ def build_parser() -> argparse.ArgumentParser:
     p_init.add_argument("--execution-mode", default="audit-only", choices=sorted(EXECUTION_MODES))
     p_init.add_argument("--basis", default="USER", choices=sorted(SCOPE_BASIS))
     p_init.add_argument("--confidence", default="HIGH", choices=sorted(SCOPE_CONFIDENCE))
+    p_init.add_argument("--profile", action="append", default=None, metavar="PROFILE",
+                        choices=sorted(OBJECTIVE_PROFILES),
+                        help="objective profile to enable; 'general' is always included "
+                             "(repeat for several, e.g. --profile security)")
     p_init.add_argument("--assumption", help="required and only allowed when --basis is ASSUMED")
     p_init.add_argument("--snapshot-json", help="immutable snapshot object as JSON, e.g. '{\"kind\":\"git\",\"base\":null,\"head\":\"abc\"}'")
     p_init.add_argument("--force", action="store_true", help="overwrite an existing state.json")

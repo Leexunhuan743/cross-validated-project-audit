@@ -68,7 +68,7 @@
 ## 6. 与异质验证方法配合
 
 - 运行时/公共行为风险优先把 `user-path-trace` 与另一种不同 archetype 配对，例如 `implementation-trace`、`state-invariant-analysis` 或 `contract-spec-verification`。
-- 不向第二条发现路径泄露第一条路径的预期结论；同一公共路径被两个代理照抄执行，不自动形成方法异质性。若要声称 independent validation，第二条路径还必须由不同执行者完成且判断隔离。
+- 不向第二条发现路径泄露第一条路径的预期结论；同一公共路径被两个代理照抄执行，不自动形成方法异质性。若要声称 independent validation，除本条的执行隔离外还须满足 [audit-ledger.md](audit-ledger.md) §3.4 的完整判据（权威）。
 - 主代理按当前 risk coverage 检查风险主张是否由不同 archetype 与不同证据源覆盖；相同代码推断不能冒充异质验证，也不能单凭执行次数声称 independent validation。
 - 需要写探针或测试时，由主代理批准隔离位置和清理方式；调查阶段子代理不得修改项目源码，也不得直接写最终 state root。自己的 investigation JSON 只能通过平台消息或主代理批准的 state-root 外 staging 交付，再由主代理按接收事务写入 canonical 路径。
 
