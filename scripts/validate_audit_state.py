@@ -72,6 +72,29 @@ ID_PATTERNS = {
     "residual": re.compile(r"^G[1-9][0-9]*$"),
 }
 
+# Documentation pointers appended to load-bearing error messages (G2): a
+# failing invariant should say where its rule lives instead of being
+# discoverable only by trial and error. Pointers carry section titles, never
+# section numbers -- sections get renumbered and hard-coded numbers rot.
+DOC_LEDGER_TOPLEVEL = "audit-ledger.md「顶层结构与必填字段」"
+DOC_LEDGER_CONDITIONAL = "audit-ledger.md「条件字段」"
+DOC_LEDGER_CLAIMS = "audit-ledger.md「Claim registry」"
+DOC_LEDGER_UNITS = "audit-ledger.md「Verification units」"
+DOC_LEDGER_FINDINGS = "audit-ledger.md「Finding」"
+DOC_LEDGER_RESIDUALS = "audit-ledger.md「Residual risks 与探索」"
+DOC_LEDGER_FIX = "audit-ledger.md「Audit-and-fix 批次状态」"
+DOC_LEDGER_ARTIFACTS = "audit-ledger.md「Investigation 与主验证文件」"
+DOC_LEDGER_LAYOUT = "audit-ledger.md「唯一权威状态」"
+DOC_REPORTING_GATE = "reporting.md「Gate 算法」"
+DOC_REVIEW_DIM_TESTS = "review-dimensions.md「Test discrimination 记录」"
+DOC_ASSESSMENT_SEVERITY = "assessment-model.md「Severity 映射」"
+DOC_ASSESSMENT_CONFIDENCE = "assessment-model.md「Confidence」"
+
+
+def with_doc(message: str, doc: str) -> str:
+    """Append a documentation pointer to an error message."""
+    return f"{message} [see {doc}]"
+
 
 class Validation:
     def __init__(self, root: Path) -> None:
@@ -244,18 +267,18 @@ def permitted_severities(risk: dict[str, Any]) -> set[str]:
 def validate_allowed_path(v: Validation, value: str, path: str) -> None:
     """Validate a portable, lexical, relative repair-scope path."""
     if "\x00" in value:
-        v.error(path, "must not contain NUL")
+        v.error(path, with_doc("must not contain NUL", DOC_LEDGER_FIX))
         return
     if "/" in value and "\\" in value:
-        v.error(path, "must use one portable path separator")
+        v.error(path, with_doc("must use one portable path separator", DOC_LEDGER_FIX))
     normalized = value.replace("\\", "/")
     if normalized.startswith("/") or re.match(r"^[A-Za-z]:", normalized) or normalized.startswith("//"):
-        v.error(path, "must be a relative path")
+        v.error(path, with_doc("must be a relative path", DOC_LEDGER_FIX))
     if ":" in normalized:
-        v.error(path, "must not contain a drive or URI colon")
+        v.error(path, with_doc("must not contain a drive or URI colon", DOC_LEDGER_FIX))
     segments = normalized.split("/")
     if any(segment in {"", ".", ".."} for segment in segments):
-        v.error(path, "must not contain empty, '.', or '..' path segments")
+        v.error(path, with_doc("must not contain empty, '.', or '..' path segments", DOC_LEDGER_FIX))
 
 
 def load_json(path: Path, validation: Validation, label: str) -> Any:
@@ -391,11 +414,11 @@ def validate_artifact_binding(v: Validation, data: dict[str, Any], label: str) -
         return
     audit_id = v.require(binding, "auditId", path, str)
     if isinstance(audit_id, str) and audit_id != v.audit_id:
-        v.error(f"{path}.auditId", f"must equal current audit id {v.audit_id!r}")
+        v.error(f"{path}.auditId", with_doc(f"must equal current audit id {v.audit_id!r}", DOC_LEDGER_TOPLEVEL))
     if "snapshot" not in binding:
-        v.error(path, "missing required key 'snapshot'")
+        v.error(path, with_doc("missing required key 'snapshot'", DOC_LEDGER_TOPLEVEL))
     elif binding["snapshot"] != v.snapshot:
-        v.error(f"{path}.snapshot", "must exactly equal the current audit snapshot")
+        v.error(f"{path}.snapshot", with_doc("must exactly equal the current audit snapshot", DOC_LEDGER_TOPLEVEL))
     unknown = set(binding) - {"auditId", "snapshot"}
     if unknown:
         v.error(path, f"unsupported keys: {sorted(unknown)}")
@@ -457,7 +480,7 @@ def validate_investigation(v: Validation, path: Path, unit: dict[str, Any], inde
     if isinstance(unit.get("id"), str):
         v.unit_evidence[unit["id"]] = local_evidence
     if unit.get("status") == "verified" and not local_evidence:
-        v.error(f"{label}.evidence", "verified Unit requires at least one DIRECT Evidence")
+        v.error(f"{label}.evidence", with_doc("verified Unit requires at least one DIRECT Evidence", DOC_LEDGER_UNITS))
     if isinstance(hypotheses, list):
         local_hypotheses: set[str] = set()
         for h_index, item in enumerate(hypotheses):
@@ -505,19 +528,19 @@ def validate_investigation(v: Validation, path: Path, unit: dict[str, Any], inde
                 if ref in local_evidence and ref in v.evidence_polarity
             }
             if hypothesis_result == "supported" and "supports" not in referenced_polarities:
-                v.error(f"{h_path}.evidenceRefs", "supported hypothesis requires supporting DIRECT evidence")
+                v.error(f"{h_path}.evidenceRefs", with_doc("supported hypothesis requires supporting DIRECT evidence", DOC_LEDGER_ARTIFACTS))
             if hypothesis_result == "refuted" and "refutes" not in referenced_polarities:
-                v.error(f"{h_path}.evidenceRefs", "refuted hypothesis requires refuting DIRECT evidence")
+                v.error(f"{h_path}.evidenceRefs", with_doc("refuted hypothesis requires refuting DIRECT evidence", DOC_LEDGER_ARTIFACTS))
             if hypothesis_result == "supported" and recommendation != "promote-to-finding":
-                v.error(f"{h_path}.recommendation", "supported hypothesis must be promoted to a Finding")
+                v.error(f"{h_path}.recommendation", with_doc("supported hypothesis must be promoted to a Finding", DOC_LEDGER_ARTIFACTS))
             if hypothesis_result == "refuted" and recommendation != "close":
-                v.error(f"{h_path}.recommendation", "refuted hypothesis must be closed")
+                v.error(f"{h_path}.recommendation", with_doc("refuted hypothesis must be closed", DOC_LEDGER_ARTIFACTS))
             if hypothesis_result == "unresolved" and recommendation not in {"promote-to-finding", "residual-gap"}:
-                v.error(f"{h_path}.recommendation", "unresolved hypothesis must become a conditional Finding or residual gap")
+                v.error(f"{h_path}.recommendation", with_doc("unresolved hypothesis must become a conditional Finding or residual gap", DOC_LEDGER_ARTIFACTS))
             if disconfirmation_result == "counter-supported" and (
                 hypothesis_result != "refuted" or recommendation != "close"
             ):
-                v.error(f"{h_path}.disconfirmationResult", "counter-supported hypothesis must be closed or replaced by a newly narrowed hypothesis")
+                v.error(f"{h_path}.disconfirmationResult", with_doc("counter-supported hypothesis must be closed or replaced by a newly narrowed hypothesis", DOC_LEDGER_ARTIFACTS))
             if isinstance(hypothesis_id, str):
                 v.hypothesis_evidence[hypothesis_id] = set(valid_refs)
                 if isinstance(recommendation, str):
@@ -525,12 +548,18 @@ def validate_investigation(v: Validation, path: Path, unit: dict[str, Any], inde
         if isinstance(unit.get("id"), str):
             v.unit_hypotheses[unit["id"]] = local_hypotheses
     if isinstance(summary, dict):
-        v.closed_object(summary, f"{label}.coverageSummary", {"checked", "verifiedBehaviors", "gaps"})
+        v.closed_object(summary, f"{label}.coverageSummary", {"checked", "verifiedBehaviors", "gaps", "peripheralObservations"})
         for key in ("checked", "verifiedBehaviors", "gaps"):
             if key not in summary or not isinstance(summary[key], list):
                 v.error(f"{label}.coverageSummary.{key}", "expected array")
             else:
                 string_items(v, summary[key], f"{label}.coverageSummary.{key}")
+        peripheral = summary.get("peripheralObservations")
+        if peripheral is not None:
+            if not isinstance(peripheral, list):
+                v.error(f"{label}.coverageSummary.peripheralObservations", "expected array")
+            else:
+                string_items(v, peripheral, f"{label}.coverageSummary.peripheralObservations")
 
 
 def validate_verification(v: Validation, path: Path, finding_id: str) -> None:
@@ -660,18 +689,18 @@ def validate_fix_workflow(
         for finding in finding_by_id.values()
     )
     if execution_mode == "audit-and-fix" and repair_state_exists and not isinstance(workflow, dict):
-        v.error("state.json.fixWorkflow", "required when audit-and-fix has REMEDIATING or RESOLVED-VERIFIED Findings")
+        v.error("state.json.fixWorkflow", with_doc("required when audit-and-fix has REMEDIATING or RESOLVED-VERIFIED Findings", DOC_LEDGER_FIX))
         return
     if workflow is None:
         return
     if execution_mode != "audit-and-fix":
-        v.error("state.json.fixWorkflow", "allowed only when executionMode=audit-and-fix")
+        v.error("state.json.fixWorkflow", with_doc("allowed only when executionMode=audit-and-fix", DOC_LEDGER_FIX))
     if not isinstance(workflow, dict):
         v.error("state.json.fixWorkflow", "expected object")
         return
     v.closed_object(workflow, "state.json.fixWorkflow", {"generation", "finalRegressionBatchId", "findingMappings", "batches"})
     if not repair_state_exists:
-        v.error("state.json.fixWorkflow", "must be omitted until a Finding enters REMEDIATING or RESOLVED-VERIFIED")
+        v.error("state.json.fixWorkflow", with_doc("must be omitted until a Finding enters REMEDIATING or RESOLVED-VERIFIED", DOC_LEDGER_FIX))
 
     generation = v.require(workflow, "generation", "state.json.fixWorkflow", int)
     if isinstance(generation, int) and not isinstance(generation, bool) and generation < 1:
@@ -858,7 +887,7 @@ def validate_fix_workflow(
     if phase == "FINAL":
         for batch_id, batch in batch_by_id.items():
             if batch.get("status") != "PASSED":
-                v.error(f"{batch_paths[batch_id]}.status", "every batch must be PASSED in FINAL audit-and-fix state")
+                v.error(f"{batch_paths[batch_id]}.status", with_doc("every batch must be PASSED in FINAL audit-and-fix state", DOC_LEDGER_FIX))
         for finding_id, finding in finding_by_id.items():
             if finding.get("disposition") == "REMEDIATING":
                 v.error(f"state.json.findings[{finding_id}].disposition", "FINAL audit-and-fix cannot leave a Finding REMEDIATING")
@@ -932,7 +961,7 @@ def validate_fix_workflow(
             if not matching_fix_batches:
                 v.error(
                     f"state.json.findings[{finding_id}]",
-                    "REMEDIATING must be assigned to a FIX batch",
+                    with_doc("REMEDIATING must be assigned to a FIX batch", DOC_LEDGER_FIX),
                 )
             continue
         resolution_refs = string_set(finding.get("resolutionEvidence"))
@@ -947,7 +976,7 @@ def validate_fix_workflow(
         if not matching_batches:
             v.error(
                 f"state.json.findings[{finding_id}].resolutionEvidence",
-                "RESOLVED-VERIFIED must map to a PASSED VERIFY batch that cites resolutionEvidence",
+                with_doc("RESOLVED-VERIFIED must map to a PASSED VERIFY batch that cites resolutionEvidence", DOC_LEDGER_FIX),
             )
 
 
@@ -974,7 +1003,7 @@ def validate_live_layout(
             if entry.name.startswith("state.json.") and entry.is_file():
                 # reported once by the dedicated unfinished-temporary-state check
                 continue
-            v.error(entry.name, "unsupported state-directory entry; use state.json metadata or an approved probe")
+            v.error(entry.name, with_doc("unsupported state-directory entry; use state.json metadata or an approved probe", DOC_LEDGER_LAYOUT))
             continue
         if is_link_like(entry):
             v.error(entry.name, "state-directory entries must not be symlinks or junctions")
@@ -1001,7 +1030,7 @@ def validate_live_layout(
             if is_link_like(child) or not child.is_file() or child.suffix != ".json":
                 v.error(str(child.relative_to(root)).replace("\\", "/"), "artifact directories may contain only flat referenced .json files")
             elif child.resolve() not in paths:
-                v.error(str(child.relative_to(root)).replace("\\", "/"), "artifact is not referenced by state.json")
+                v.error(str(child.relative_to(root)).replace("\\", "/"), with_doc("artifact is not referenced by state.json", DOC_LEDGER_LAYOUT))
     probes = root / "probes"
     if phase == "FINAL" and probes.is_dir():
         try:
@@ -1029,7 +1058,7 @@ def validate_state(state_path: Path) -> Validation:
     v.closed_object(
         data,
         "state.json",
-        {"schemaVersion", "phase", "audit", "sharedFacts", "claims", "verificationUnits", "findings", "residualRisks", "fixWorkflow", "exploration"},
+        {"schemaVersion", "phase", "audit", "sharedFacts", "claims", "verificationUnits", "findings", "residualRisks", "fixWorkflow", "exploration", "dispatches"},
     )
 
     if data.get("schemaVersion") != SCHEMA_VERSION:
@@ -1066,7 +1095,7 @@ def validate_state(state_path: Path) -> Validation:
                 "id", "target", "scope", "objectives", "availableEvidence", "deliverable",
                 "scopeMode", "objectiveProfiles", "executionMode", "scopeResolution",
                 "startedAt", "updatedAt", "snapshot", "supersedesAuditId", "supersession",
-                "gates", "independentValidationRequiredFor", "stop", "scopeCoverage", "riskTolerance",
+                "gates", "independentValidationRequiredFor", "priorContact", "stop", "scopeCoverage", "riskTolerance",
             },
         )
         for key in ("id", "target", "scope", "deliverable", "startedAt", "updatedAt"):
@@ -1213,16 +1242,26 @@ def validate_state(state_path: Path) -> Validation:
         independent = audit.get("independentValidationRequiredFor")
         if independent is not None:
             if not isinstance(independent, list) or not independent:
-                v.error("state.json.audit.independentValidationRequiredFor", "must be a non-empty array when present")
+                v.error("state.json.audit.independentValidationRequiredFor", with_doc("must be a non-empty array when present", DOC_LEDGER_CONDITIONAL))
             else:
                 allowed = requested_gates | {"AUDIT"}
                 valid_independent = string_items(v, independent, "state.json.audit.independentValidationRequiredFor")
                 for index, value in enumerate(valid_independent):
                     v.enum(value, allowed, f"state.json.audit.independentValidationRequiredFor[{index}]")
                 if len(set(valid_independent)) != len(valid_independent):
-                    v.error("state.json.audit.independentValidationRequiredFor", "contains duplicates")
+                    v.error("state.json.audit.independentValidationRequiredFor", with_doc("contains duplicates", DOC_LEDGER_CONDITIONAL))
                 if "AUDIT" in valid_independent and len(valid_independent) != 1:
-                    v.error("state.json.audit.independentValidationRequiredFor", "AUDIT cannot be combined with Gate targets")
+                    v.error("state.json.audit.independentValidationRequiredFor", with_doc("AUDIT cannot be combined with Gate targets", DOC_LEDGER_CONDITIONAL))
+        prior_contact = audit.get("priorContact")
+        if prior_contact is not None:
+            if not isinstance(prior_contact, list) or not prior_contact:
+                v.error("state.json.audit.priorContact", with_doc("must be a non-empty array when present", DOC_LEDGER_CONDITIONAL))
+            else:
+                valid_contacts = string_items(v, prior_contact, "state.json.audit.priorContact")
+                for index, value in enumerate(valid_contacts):
+                    v.enum(value, {"implementer", "informal-verifier"}, f"state.json.audit.priorContact[{index}]")
+                if len(set(valid_contacts)) != len(valid_contacts):
+                    v.error("state.json.audit.priorContact", with_doc("contains duplicates", DOC_LEDGER_CONDITIONAL))
         stop = audit.get("stop")
         if stop is not None:
             if not isinstance(stop, dict):
@@ -1242,7 +1281,7 @@ def validate_state(state_path: Path) -> Validation:
                 if policy == "exhaustive":
                     coverage_path = "state.json.audit.scopeCoverage"
                     if not isinstance(scope_coverage, dict):
-                        v.error(coverage_path, "required object when stop.policy=exhaustive")
+                        v.error(coverage_path, with_doc("required object when stop.policy=exhaustive", DOC_LEDGER_CONDITIONAL))
                     else:
                         v.closed_object(
                             scope_coverage,
@@ -1308,9 +1347,9 @@ def validate_state(state_path: Path) -> Validation:
                                 "allowed only for incomplete exhaustive coverage",
                             )
                 elif scope_coverage is not None:
-                    v.error("state.json.audit.scopeCoverage", "allowed only when stop.policy=exhaustive")
+                    v.error("state.json.audit.scopeCoverage", with_doc("allowed only when stop.policy=exhaustive", DOC_LEDGER_CONDITIONAL))
         elif "scopeCoverage" in audit:
-            v.error("state.json.audit.scopeCoverage", "allowed only when stop.policy=exhaustive")
+            v.error("state.json.audit.scopeCoverage", with_doc("allowed only when stop.policy=exhaustive", DOC_LEDGER_CONDITIONAL))
 
     fact_ids: set[str] = set()
     for index, item in enumerate(shared_facts):
@@ -1498,7 +1537,7 @@ def validate_state(state_path: Path) -> Validation:
             and status != "verified"
             and residual_ref is None
         ):
-            v.error(f"{path}.residualRiskId", "FINAL unfinished REQUIRED Unit must map to a material residual risk")
+            v.error(f"{path}.residualRiskId", with_doc("FINAL unfinished REQUIRED Unit must map to a material residual risk", DOC_LEDGER_UNITS))
         if "sufficiency" in item:
             v.error(f"{path}.sufficiency", "belongs to the Claim, not the Verification Unit")
         investigation = item.get("investigationFile")
@@ -1525,7 +1564,7 @@ def validate_state(state_path: Path) -> Validation:
         if not any(v.test_discrimination_results.get(evidence_id) == "YES" for evidence_id in evidence_ids):
             v.error(
                 f"state.json.verificationUnits[{unit_id}]",
-                "verified test-discrimination Unit requires at least one Evidence with testDiscrimination.result=YES",
+                with_doc("verified test-discrimination Unit requires at least one Evidence with testDiscrimination.result=YES", DOC_REVIEW_DIM_TESTS),
             )
 
     # A Claim-level MET is an aggregate evidence assertion, not a free-form flag.
@@ -1533,17 +1572,17 @@ def validate_state(state_path: Path) -> Validation:
     for claim_id, claim in claim_by_id.items():
         claim_units = units_by_claim.get(claim_id, [])
         if phase == "FINAL" and claim.get("obligation") == "REQUIRED" and not claim_units:
-            v.error(f"state.json.claims[{claim_id}]", "FINAL REQUIRED Claim requires at least one Verification Unit")
+            v.error(f"state.json.claims[{claim_id}]", with_doc("FINAL REQUIRED Claim requires at least one Verification Unit", DOC_LEDGER_CLAIMS))
         if phase != "FINAL" or claim.get("sufficiency") != "MET":
             continue
         verified_units = [unit for unit in claim_units if unit.get("status") == "verified"]
         path = f"state.json.claims[{claim_id}].sufficiency"
         if not claim_units:
-            v.error(path, "MET requires at least one materialized Verification Unit")
+            v.error(path, with_doc("MET requires at least one materialized Verification Unit", DOC_LEDGER_CLAIMS))
         if not verified_units:
-            v.error(path, "MET requires at least one verified Verification Unit")
+            v.error(path, with_doc("MET requires at least one verified Verification Unit", DOC_LEDGER_CLAIMS))
         if claim.get("obligation") == "REQUIRED" and any(unit.get("status") != "verified" for unit in claim_units):
-            v.error(path, "MET requires every Unit inherited by a REQUIRED Claim to be verified")
+            v.error(path, with_doc("MET requires every Unit inherited by a REQUIRED Claim to be verified", DOC_LEDGER_CLAIMS))
         evidence_refs = {
             evidence_id
             for unit in verified_units
@@ -1554,11 +1593,11 @@ def validate_state(state_path: Path) -> Validation:
             )
         }
         if not evidence_refs:
-            v.error(path, "MET requires DIRECT Evidence from a verified Verification Unit")
+            v.error(path, with_doc("MET requires DIRECT Evidence from a verified Verification Unit", DOC_LEDGER_CLAIMS))
         if claim.get("priority") == "highest" and len(
             {unit["method"] for unit in verified_units if isinstance(unit.get("method"), str)}
         ) < 2:
-            v.error(path, "MET for a highest Claim requires two verified heterogeneous methods")
+            v.error(path, with_doc("MET for a highest Claim requires two verified heterogeneous methods", DOC_LEDGER_CLAIMS))
 
     finding_by_id: dict[str, dict[str, Any]] = {}
     verification_paths: dict[str, Path] = {}
@@ -1655,7 +1694,7 @@ def validate_state(state_path: Path) -> Validation:
             if isinstance(result, str):
                 v.enum(result, DISCONFIRMATION_RESULTS, f"{path}.disconfirmation.result")
                 if decision == "CONFIRMED" and result != "counter-refuted":
-                    v.error(f"{path}.disconfirmation.result", "CONFIRMED requires counter-refuted disconfirmation")
+                    v.error(f"{path}.disconfirmation.result", with_doc("CONFIRMED requires counter-refuted disconfirmation", DOC_LEDGER_FINDINGS))
                 if decision == "NEEDS-DECISION" and result != "counter-refuted":
                     v.error(f"{path}.disconfirmation.result", "NEEDS-DECISION requires fact-level disconfirmation to be counter-refuted")
                 if decision == "CONDITIONAL" and result == "counter-supported":
@@ -1682,7 +1721,7 @@ def validate_state(state_path: Path) -> Validation:
                     if severity not in permitted:
                         v.error(
                             f"{path}.severity",
-                            f"{severity} is not permitted by the Impact/Likelihood/Reachability/Recoverability mapping; allowed: {', '.join(sorted(permitted))}",
+                            with_doc(f"{severity} is not permitted by the Impact/Likelihood/Reachability/Recoverability mapping; allowed: {', '.join(sorted(permitted))}", DOC_ASSESSMENT_SEVERITY),
                         )
                     if severity != risk["impact"]:
                         rationale = v.require(item, "severityRationale", path, str)
@@ -1693,13 +1732,13 @@ def validate_state(state_path: Path) -> Validation:
             if isinstance(confidence, str):
                 v.enum(confidence, CONFIDENCE, f"{path}.confidence")
                 if decision == "CONFIRMED" and confidence not in {"High", "Very-High"}:
-                    v.error(f"{path}.confidence", "CONFIRMED requires High or Very-High")
+                    v.error(f"{path}.confidence", with_doc("CONFIRMED requires High or Very-High", DOC_ASSESSMENT_CONFIDENCE))
         elif decision == "REJECTED":
             for key in ("risk", "severity", "severityRationale", "confidence", "disposition"):
                 if key in item:
                     v.error(f"{path}.{key}", "must be omitted for REJECTED")
             if not isinstance(refuting, list) or not refuting:
-                v.error(f"{path}.refutingEvidence", "REJECTED requires DIRECT refuting Evidence")
+                v.error(f"{path}.refutingEvidence", with_doc("REJECTED requires DIRECT refuting Evidence", DOC_LEDGER_FINDINGS))
         elif decision == "PENDING":
             if phase == "FINAL":
                 v.error(f"{path}.decision", "PENDING is not allowed in FINAL state")
@@ -1712,7 +1751,7 @@ def validate_state(state_path: Path) -> Validation:
         if disposition is not None:
             v.enum(disposition, DISPOSITIONS, f"{path}.disposition")
             if decision != "CONFIRMED":
-                v.error(f"{path}.disposition", "explicit disposition is allowed only for CONFIRMED findings")
+                v.error(f"{path}.disposition", with_doc("explicit disposition is allowed only for CONFIRMED findings", DOC_LEDGER_FINDINGS))
             if disposition == "RESOLVED-VERIFIED" and not item.get("resolutionEvidence"):
                 v.error(f"{path}.resolutionEvidence", "required for RESOLVED-VERIFIED")
             authorization = item.get("riskAcceptanceAuthorization")
@@ -1816,7 +1855,7 @@ def validate_state(state_path: Path) -> Validation:
                 extra = sorted(reconciled_hypotheses - expected_hypotheses)
                 v.error(
                     f"state.json.verificationUnits[{index}].reconciliations",
-                    f"must reconcile every investigation hypothesis exactly once; missing={missing}, extra={extra}",
+                    with_doc(f"must reconcile every investigation hypothesis exactly once; missing={missing}, extra={extra}", DOC_LEDGER_UNITS),
                 )
             if len(reconciled_hypotheses) != len(reconciliations):
                 v.error(f"state.json.verificationUnits[{index}].reconciliations", "contains duplicate hypothesis reconciliation")
@@ -1832,7 +1871,7 @@ def validate_state(state_path: Path) -> Validation:
             local_evidence = v.unit_evidence.get(unit_id, set()) if isinstance(unit_id, str) else set()
             for ref in evidence_refs:
                 if ref not in local_evidence:
-                    v.error(f"{path}.evidenceRefs", f"evidence {ref!r} does not belong to this Verification Unit")
+                    v.error(f"{path}.evidenceRefs", with_doc(f"evidence {ref!r} does not belong to this Verification Unit", DOC_LEDGER_UNITS))
             result = rec.get("result")
             polarities = {v.evidence_polarity.get(ref) for ref in evidence_refs if ref in local_evidence}
             if result == "FINDING" and "supports" not in polarities:
@@ -1853,7 +1892,7 @@ def validate_state(state_path: Path) -> Validation:
             if expected_reconciliation is not None and rec.get("result") != expected_reconciliation:
                 v.error(
                     f"{path}.result",
-                    f"must be {expected_reconciliation} for hypothesis recommendation {hypothesis_recommendation}",
+                    with_doc(f"must be {expected_reconciliation} for hypothesis recommendation {hypothesis_recommendation}", DOC_LEDGER_UNITS),
                 )
             if rec.get("result") == "FINDING" and isinstance(finding_ref, str) and finding_ref not in finding_by_id:
                 v.error(f"{path}.findingId", f"unknown finding id {finding_ref!r}")
@@ -1883,7 +1922,7 @@ def validate_state(state_path: Path) -> Validation:
         if source_hypotheses != linked_hypotheses:
             v.error(
                 f"{path}.sourceHypotheses",
-                f"must exactly match FINDING reconciliations; missing={sorted(linked_hypotheses - source_hypotheses)}, extra={sorted(source_hypotheses - linked_hypotheses)}",
+                with_doc(f"must exactly match FINDING reconciliations; missing={sorted(linked_hypotheses - source_hypotheses)}, extra={sorted(source_hypotheses - linked_hypotheses)}", DOC_LEDGER_FINDINGS),
             )
         categorized_evidence: set[str] = set()
         for key in ("supportingEvidence", "refutingEvidence", "resolutionEvidence", "provenanceEvidence"):
@@ -1958,7 +1997,7 @@ def validate_state(state_path: Path) -> Validation:
             decision = raw_decision if isinstance(raw_decision, str) else None
             severity = raw_severity if isinstance(raw_severity, str) else None
             if decision == "REJECTED" and not (new_evidence & string_set(item.get("refutingEvidence"))):
-                v.error(f"{path}.refutingEvidence", "REJECTED requires new refuting Evidence from its verification file")
+                v.error(f"{path}.refutingEvidence", with_doc("REJECTED requires new refuting Evidence from its verification file", DOC_LEDGER_FINDINGS))
             if decision in {"CONFIRMED", "NEEDS-DECISION"} and not (
                 new_evidence & string_set(item.get("supportingEvidence"))
             ):
@@ -1981,11 +2020,11 @@ def validate_state(state_path: Path) -> Validation:
                 "NEEDS-DECISION",
             }
             if challenge_required and challenge is None:
-                v.error(f"{path}.verificationFile", "Critical/High Finding requires a recorded second challenge")
+                v.error(f"{path}.verificationFile", with_doc("Critical/High Finding requires a recorded second challenge", DOC_LEDGER_ARTIFACTS))
             if isinstance(challenge, dict):
                 status = challenge.get("status")
                 if status == "GAP" and decision != "CONDITIONAL":
-                    v.error(f"{path}.verificationFile", "challenge GAP is allowed only for a CONDITIONAL Finding")
+                    v.error(f"{path}.verificationFile", with_doc("challenge GAP is allowed only for a CONDITIONAL Finding", DOC_LEDGER_ARTIFACTS))
                 if status == "COMPLETED":
                     challenge_refs = string_set(challenge.get("evidenceRefs"))
                     mode = challenge.get("mode")
@@ -2026,7 +2065,7 @@ def validate_state(state_path: Path) -> Validation:
                     ):
                         v.error(f"{path}.verificationFile", "heterogeneous challenge method must differ from the primary verification method")
                     if decision in {"CONFIRMED", "NEEDS-DECISION"} and challenge.get("result") != "counter-refuted":
-                        v.error(f"{path}.verificationFile", f"{decision} requires a completed counter-refuted challenge")
+                        v.error(f"{path}.verificationFile", with_doc(f"{decision} requires a completed counter-refuted challenge", DOC_LEDGER_ARTIFACTS))
                     if decision == "CONDITIONAL" and challenge.get("result") == "counter-supported":
                         v.error(f"{path}.verificationFile", "counter-supported challenge closes or narrows the current Finding")
 
@@ -2036,13 +2075,13 @@ def validate_state(state_path: Path) -> Validation:
                 and item.get("disposition") == "RESOLVED-VERIFIED"
             )
             if resolution_required and resolution_challenge is None:
-                v.error(f"{path}.verificationFile", "Critical/High RESOLVED-VERIFIED Finding requires a resolutionChallenge")
+                v.error(f"{path}.verificationFile", with_doc("Critical/High RESOLVED-VERIFIED Finding requires a resolutionChallenge", DOC_LEDGER_ARTIFACTS))
             if isinstance(resolution_challenge, dict):
                 status = resolution_challenge.get("status")
                 if item.get("disposition") != "RESOLVED-VERIFIED":
-                    v.error(f"{path}.verificationFile", "resolutionChallenge is allowed only for RESOLVED-VERIFIED")
+                    v.error(f"{path}.verificationFile", with_doc("resolutionChallenge is allowed only for RESOLVED-VERIFIED", DOC_LEDGER_ARTIFACTS))
                 if status != "COMPLETED":
-                    v.error(f"{path}.verificationFile", "RESOLVED-VERIFIED requires a completed resolutionChallenge")
+                    v.error(f"{path}.verificationFile", with_doc("RESOLVED-VERIFIED requires a completed resolutionChallenge", DOC_LEDGER_ARTIFACTS))
                 else:
                     challenge_unit_id = resolution_challenge.get("unitId")
                     challenge_unit = unit_by_id.get(challenge_unit_id) if isinstance(challenge_unit_id, str) else None
@@ -2147,13 +2186,32 @@ def validate_state(state_path: Path) -> Validation:
         elif requested_gates and not requested_gates.issubset(string_set(residual_item.get("affectsGates"))):
             v.error(coverage_path, "exhaustive coverage residual must affect every requested Gate")
 
+    dispatches = data.get("dispatches")
+    if dispatches is not None:
+        if not isinstance(dispatches, list) or not dispatches:
+            v.error("state.json.dispatches", "must be a non-empty array when present")
+        else:
+            for index, item in enumerate(dispatches):
+                path = f"state.json.dispatches[{index}]"
+                if not isinstance(item, dict):
+                    v.error(path, "expected object")
+                    continue
+                v.closed_object(item, path, {"unit", "reason", "residue"})
+                for key in ("unit", "reason"):
+                    value = v.require(item, key, path, str)
+                    if isinstance(value, str):
+                        v.nonempty(value, f"{path}.{key}")
+                residue = item.get("residue")
+                if residue is not None and (not isinstance(residue, str) or not residue.strip()):
+                    v.error(f"{path}.residue", "must be a non-empty string when present")
+
     validate_fix_workflow(v, data, phase, execution, finding_by_id, residual_by_id)
 
     exploration = data.get("exploration")
     exploratory_claims = [claim for claim in claims if isinstance(claim, dict) and claim.get("obligation") == "EXPLORATORY"]
     if exploratory_claims:
         if not isinstance(exploration, dict):
-            v.error("state.json.exploration", "required when EXPLORATORY claims exist")
+            v.error("state.json.exploration", with_doc("required when EXPLORATORY claims exist", DOC_LEDGER_RESIDUALS))
         else:
             rounds = v.require(exploration, "rounds", "state.json.exploration", list)
             no_delta = v.require(exploration, "noMaterialDeltaRounds", "state.json.exploration", int)
@@ -2383,7 +2441,7 @@ def validate_state(state_path: Path) -> Validation:
             decision_record = raw_decision if isinstance(raw_decision, dict) else {}
             actual = decision_record.get("result")
             if actual is not None and actual != expected:
-                v.error(f"state.json.audit.gates.decisions.{target}.result", f"declared {actual}, but state derives {expected}")
+                v.error(f"state.json.audit.gates.decisions.{target}.result", with_doc(f"declared {actual}, but state derives {expected}", DOC_REPORTING_GATE))
             basis = decision_record.get("basis", [])
             if isinstance(basis, list):
                 decisive = {
@@ -2402,7 +2460,7 @@ def validate_state(state_path: Path) -> Validation:
                 if decisive and not decisive.intersection(valid_basis):
                     v.error(
                         f"state.json.audit.gates.decisions.{target}.basis",
-                        f"must cite at least one decisive id/token: {sorted(decisive)}",
+                        with_doc(f"must cite at least one decisive id/token: {sorted(decisive)}", DOC_REPORTING_GATE),
                     )
 
     validate_live_layout(v, root, phase if isinstance(phase, str) else None, investigation_paths.values(), verification_paths.values())

@@ -8,6 +8,7 @@
 - 覆盖已有目标、跨卷移动、打开文件 rename 和文件/目录行为可能与 POSIX 不同。
 - 使用目标 Windows 版本上的真实生产文件函数和代表性路径验证。
 - Linux 上的字符串比较或模拟只能形成 Hypothesis/辅助线索，不能单独支持 Windows 文件系统 Finding 的 `CONFIRMED` Decision。
+- 动态探针操作纪律：cmd/PowerShell 的环境变量与 shell 状态不跨工具调用持久——一次调用里 `set TDIR=...` 在下一次调用中不存在，未加引号/未展开的变量会原样落成字面量目录名；临时实验只发生在系统临时目录下统一命名的 scratch（如 `%TEMP%/<audit-id>-<unit>/`），绝不在仓库当前目录；引用路径一律用显式绝对路径，不依赖 shell 状态；收口时清点并删除 scratch、报告残留。
 
 ## Unicode、字节和规范化边界
 

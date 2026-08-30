@@ -5,18 +5,30 @@ The validator remains the only authority on whether a state is legal. This
 helper exists solely to remove mechanical work that a main agent otherwise
 repeats by hand:
 
-  init    create a minimal state.json skeleton for a new audit instance
-  bind    stamp or verify `auditBinding` on investigation/verification JSON
-  lint    report mechanical inconsistencies (read-only)
-  verify  thin wrapper around validate_audit_state.py
+  init     create a minimal state.json skeleton for a new audit instance
+  check    validate one investigation artifact -- state-backed (receive side)
+           or --standalone (investigator self-check that never reads state)
+  receive  validate a staged investigation and copy it verbatim to its
+           canonical path, reporting structural differences on replacement
+  bind     stamp or verify `auditBinding` on investigation/verification JSON
+  lint     report mechanical inconsistencies (read-only)
+  verify   thin wrapper around validate_audit_state.py
 
 It makes no semantic decisions: it never invents a Claim, a Finding, a
-Decision, a Severity or a Gate result. Standard library only, Python 3.9+.
+Decision, a Severity or a Gate result. `receive` in particular does not
+normalize content, write state references or push `reported` -- those are
+main-agent acceptance actions. Standard library only, Python 3.9+.
 
 The one rule it defends rather than automates: a mismatched `auditBinding`
 means the artifact was gathered against another audit or snapshot. Such an
 artifact must be re-gathered, never re-stamped -- so `bind` refuses to
-overwrite it unless `--force` is passed explicitly.
+overwrite it unless `--force` is passed explicitly, and `receive` rejects it
+for the same reason.
+
+On-demand candidates not implemented (see the audit disposition log):
+`reconcile` (scaffold reconciliations from investigation hypotheses) and
+`finalize` (claim sufficiency aggregation). Land `receive` first and observe
+the actual payoff before adding more subcommands.
 """
 
 from __future__ import annotations
@@ -24,6 +36,7 @@ from __future__ import annotations
 import argparse
 import json
 import re
+import shutil
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
@@ -429,10 +442,213 @@ def cmd_lint(args: argparse.Namespace) -> int:
 
 
 def cmd_verify(args: argparse.Namespace) -> int:
-    sys.path.insert(0, str(Path(__file__).resolve().parent))
-    from validate_audit_state import main as validator_main  # noqa: PLC0415
+    validator_main = _import_validator().main
 
     return validator_main([str(Path(args.state_dir))])
+
+
+# --------------------------------------------------------------------------
+# check / receive
+# --------------------------------------------------------------------------
+
+
+def _import_validator():
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    import validate_audit_state as validator
+
+    return validator
+
+
+def report_validation(v: Any, label: str) -> int:
+    for warning in sorted(v.warnings):
+        print(f"WARNING {label}: {warning}")
+    for error in sorted(v.errors):
+        print(f"ERROR {label}: {error}")
+    if v.errors:
+        print(f"FAIL {label}: {len(v.errors)} error(s)")
+        return 1
+    print(f"PASS {label}: 0 errors, {len(v.warnings)} warning(s)")
+    return 0
+
+
+def parse_snapshot_arg(raw: str | None) -> Any:
+    if raw is None:
+        return None
+    try:
+        value = json.loads(raw)
+    except json.JSONDecodeError as exc:
+        raise SystemExit(f"ERROR: --snapshot-json is not valid JSON: {exc}") from exc
+    if value is not None and not isinstance(value, dict):
+        raise SystemExit("ERROR: --snapshot-json must be a JSON object or null")
+    return value
+
+
+def find_unit(state: dict[str, Any], unit_id: str) -> tuple[int | None, dict[str, Any] | None]:
+    units = state.get("verificationUnits") or []
+    for index, unit in enumerate(units):
+        if isinstance(unit, dict) and unit.get("id") == unit_id:
+            return index, unit
+    return None, None
+
+
+def validate_investigation_file(state: dict[str, Any], artifact: Path, unit: dict[str, Any], index: int) -> Any:
+    """Run the validator's full investigation checks against one file.
+
+    The Validation root is the artifact's own directory so a staged file
+    outside the state root still gets a clean relative label; the audit id and
+    snapshot underpinning the binding check come from the loaded state.
+    """
+    validator = _import_validator()
+    audit = state.get("audit") if isinstance(state.get("audit"), dict) else {}
+    v = validator.Validation(artifact.resolve().parent)
+    v.audit_id = audit.get("id")
+    v.snapshot = audit.get("snapshot")
+    if isinstance(state.get("schemaVersion"), int):
+        v.schema_version = state["schemaVersion"]
+    validator.validate_investigation(v, artifact, unit, index)
+    return v
+
+
+def cmd_check(args: argparse.Namespace) -> int:
+    if args.standalone:
+        if args.state_dir:
+            return fail("--standalone must not be combined with a state directory")
+        missing = [
+            name
+            for name, value in (
+                ("--unit-id", args.unit_id),
+                ("--claim-id", args.claim_id),
+                ("--method", args.method),
+                ("--audit-id", args.audit_id),
+                ("--snapshot-json", args.snapshot_json),
+            )
+            if not value
+        ]
+        if missing:
+            return fail(
+                f"--standalone requires {', '.join(missing)}; inject them from the dispatch prompt. "
+                "This mode must not read state.json: it contains Gate policy and other investigators' conclusions."
+            )
+        artifact = Path(args.artifact)
+        if not artifact.is_file():
+            return fail(f"artifact not found: {artifact}")
+        validator = _import_validator()
+        fake_unit = {"id": args.unit_id, "claimId": args.claim_id, "method": args.method}
+        v = validator.Validation(artifact.resolve().parent)
+        v.audit_id = args.audit_id
+        v.snapshot = parse_snapshot_arg(args.snapshot_json)
+        validator.validate_investigation(v, artifact, fake_unit, 0)
+        return report_validation(v, f"standalone check {artifact.name}")
+
+    if not args.state_dir:
+        return fail("provide a state directory, or use --standalone for the no-state self-check")
+    state_dir = Path(args.state_dir)
+    artifact = Path(args.artifact)
+    if not artifact.is_file() and not artifact.is_absolute():
+        artifact = state_dir / artifact
+    if not artifact.is_file():
+        return fail(f"artifact not found: {args.artifact}")
+    state = load_state(state_dir)
+    data = load_json_or_exit(artifact)
+    if not isinstance(data, dict):
+        return fail(f"{artifact}: must contain a JSON object")
+    unit_id = data.get("unitId")
+    if not isinstance(unit_id, str) or not unit_id.strip():
+        return fail(f"{artifact}: missing or invalid unitId")
+    index, unit = find_unit(state, unit_id)
+    if unit is None or index is None:
+        return fail(f"state.json has no verification unit {unit_id!r}")
+    v = validate_investigation_file(state, artifact, unit, index)
+    return report_validation(v, f"check {artifact}")
+
+
+def structural_diff_summary(old: dict[str, Any], new: dict[str, Any]) -> list[str]:
+    lines: list[str] = []
+    for key in sorted(set(old) - set(new)):
+        lines.append(f"- top-level key removed: {key}")
+    for key in sorted(set(new) - set(old)):
+        lines.append(f"+ top-level key added: {key}")
+    for key in sorted(set(old) & set(new)):
+        if old[key] != new[key]:
+            lines.append(f"~ top-level key changed: {key}")
+    for key in ("hypotheses", "evidence"):
+        old_ids = {
+            item.get("id")
+            for item in (old.get(key) or [])
+            if isinstance(item, dict) and isinstance(item.get("id"), str)
+        }
+        new_ids = {
+            item.get("id")
+            for item in (new.get(key) or [])
+            if isinstance(item, dict) and isinstance(item.get("id"), str)
+        }
+        for removed in sorted(old_ids - new_ids):
+            lines.append(f"- {key} removed: {removed}")
+        for added in sorted(new_ids - old_ids):
+            lines.append(f"+ {key} added: {added}")
+    if not lines:
+        lines.append("no structural differences (content-level review remains the main agent's job)")
+    return lines
+
+
+def cmd_receive(args: argparse.Namespace) -> int:
+    state_dir = Path(args.state_dir)
+    state = load_state(state_dir)
+    staged = Path(args.staged)
+    if not staged.is_file():
+        return fail(f"staged artifact not found: {staged}")
+    data = load_json_or_exit(staged)
+    if not isinstance(data, dict):
+        return fail(f"{staged}: must contain a JSON object")
+    unit_id = data.get("unitId")
+    if not isinstance(unit_id, str) or not unit_id.strip():
+        return fail(f"{staged}: missing or invalid unitId")
+    index, unit = find_unit(state, unit_id)
+    if unit is None or index is None:
+        return fail(f"state.json has no verification unit {unit_id!r}")
+    executor = unit.get("executor")
+    if not isinstance(executor, str) or not executor.strip():
+        return fail(f"unit {unit_id!r} has no executor yet; dispatch it before receiving its investigation")
+    # The state-referenced path wins once the unit has reported, so a re-receive
+    # lands on the same file; before that, derive the persona-convention name.
+    existing = unit.get("investigationFile")
+    if isinstance(existing, str) and existing.strip():
+        canonical = resolve_inside(state_dir, existing)
+    else:
+        canonical = resolve_inside(state_dir, f"investigations/{unit_id}-{executor}.json")
+
+    v = validate_investigation_file(state, staged, unit, index)
+    if v.errors:
+        for error in sorted(v.errors):
+            print(f"ERROR {error}", file=sys.stderr)
+        return fail(
+            f"{staged}: {len(v.errors)} validation error(s); nothing written. "
+            "A mismatched auditBinding means the artifact belongs to another audit or snapshot -- "
+            "re-gather it instead of re-stamping."
+        )
+
+    replaced = canonical.exists()
+    if replaced and not args.force:
+        return fail(f"{canonical} already exists; pass --force to replace it (the replacement reports a structural diff)")
+
+    if replaced:
+        previous = load_json_or_exit(canonical)
+        if isinstance(previous, dict):
+            for line in structural_diff_summary(previous, data):
+                print(f"DIFF {line}")
+        else:
+            print("DIFF previous canonical artifact was not a JSON object")
+
+    # Copy the staged bytes verbatim: receive never rewrites content, so the
+    # canonical artifact stays a faithful copy of what the investigator
+    # delivered and any later normalization is visible against it.
+    shutil.copyfile(staged, canonical)
+    print(f"{'replaced' if replaced else 'wrote'} {canonical}")
+    print(
+        "receive does not update state.json: writing the investigationFile reference "
+        "and setting status=reported remain main-agent acceptance actions."
+    )
+    return 0
 
 
 # --------------------------------------------------------------------------
@@ -466,6 +682,26 @@ def build_parser() -> argparse.ArgumentParser:
     p_init.add_argument("--snapshot-json", help="immutable snapshot object as JSON, e.g. '{\"kind\":\"git\",\"base\":null,\"head\":\"abc\"}'")
     p_init.add_argument("--force", action="store_true", help="overwrite an existing state.json")
     p_init.set_defaults(func=cmd_init)
+
+    p_check = sub.add_parser("check", help="validate one investigation artifact (state-backed or --standalone)")
+    p_check.add_argument("state_dir", nargs="?", help="audit instance directory; omit when using --standalone")
+    p_check.add_argument("--artifact", required=True, help="staged or referenced investigation JSON")
+    p_check.add_argument("--standalone", action="store_true",
+                         help="investigator self-check: never read state.json; validate schema, id "
+                              "prefixes and internal consistency only")
+    p_check.add_argument("--unit-id", help="standalone mode: Unit id from the dispatch prompt")
+    p_check.add_argument("--claim-id", help="standalone mode: Claim id from the dispatch prompt")
+    p_check.add_argument("--method", help="standalone mode: verification archetype from the dispatch prompt")
+    p_check.add_argument("--audit-id", help="standalone mode: audit id from the dispatch prompt")
+    p_check.add_argument("--snapshot-json", help="standalone mode: immutable snapshot object as JSON, or null")
+    p_check.set_defaults(func=cmd_check)
+
+    p_receive = sub.add_parser("receive", help="validate a staged investigation and copy it to its canonical path")
+    p_receive.add_argument("state_dir")
+    p_receive.add_argument("--staged", required=True, help="staged investigation JSON outside the state root")
+    p_receive.add_argument("--force", action="store_true",
+                           help="replace an existing canonical artifact (reports a structural diff)")
+    p_receive.set_defaults(func=cmd_receive)
 
     p_bind = sub.add_parser("bind", help="stamp or verify auditBinding on artifact JSON")
     p_bind.add_argument("state_dir")

@@ -357,6 +357,114 @@ class AuditStateTests(unittest.TestCase):
         after = {p: p.read_text(encoding="utf-8") for p in self.dir.rglob("*.json")}
         self.assertEqual(before, after)
 
+    # check -----------------------------------------------------------------
+
+    def test_check_state_mode_accepts_a_referenced_artifact(self) -> None:
+        code, out = self.run_helper("check", str(self.dir), "--artifact", "investigations/R1-a.json")
+        self.assertEqual(0, code, out)
+
+    def test_check_state_mode_flags_content_drift(self) -> None:
+        data = self.read_artifact(self.dir / "investigations" / "R1-a.json")
+        data["hypotheses"][0]["recommendation"] = "close"
+        staged = self.raw / "drifted.json"
+        self.write_artifact(staged, data)
+
+        code, out = self.run_helper("check", str(self.dir), "--artifact", str(staged))
+        self.assertEqual(1, code)
+        self.assertIn("supported hypothesis must be promoted to a Finding", out)
+
+    def test_check_standalone_runs_without_state(self) -> None:
+        staged = self.raw / "standalone.json"
+        self.write_artifact(staged, self.read_artifact(self.dir / "investigations" / "R1-a.json"))
+        code, out = self.run_helper(
+            "check", "--standalone", "--artifact", str(staged),
+            "--audit-id", "release-001",
+            "--snapshot-json", json.dumps({"kind": "deployment", "version": "release-candidate-2026-08-22"}),
+            "--unit-id", "R1", "--claim-id", "Q1", "--method", "implementation-trace",
+        )
+        self.assertEqual(0, code, out)
+        self.assertIn("PASS", out)
+
+    def test_check_standalone_flags_an_inconsistent_hypothesis(self) -> None:
+        data = self.read_artifact(self.dir / "investigations" / "R1-a.json")
+        data["hypotheses"][0]["result"] = "refuted"
+        data["hypotheses"][0]["recommendation"] = "promote-to-finding"
+        staged = self.raw / "inconsistent.json"
+        self.write_artifact(staged, data)
+        code, out = self.run_helper(
+            "check", "--standalone", "--artifact", str(staged),
+            "--audit-id", "release-001",
+            "--snapshot-json", json.dumps({"kind": "deployment", "version": "release-candidate-2026-08-22"}),
+            "--unit-id", "R1", "--claim-id", "Q1", "--method", "implementation-trace",
+        )
+        self.assertEqual(1, code)
+        self.assertIn("refuted hypothesis must be closed", out)
+
+    def test_check_standalone_requires_injected_context(self) -> None:
+        code, out = self.run_helper("check", "--standalone", "--artifact", "x.json")
+        self.assertEqual(1, code)
+        self.assertIn("--standalone requires", out)
+
+    # receive ---------------------------------------------------------------
+
+    def test_receive_writes_a_byte_identical_canonical_copy(self) -> None:
+        target = self.dir / "investigations" / "R1-a.json"
+        original = target.read_bytes()
+        target.unlink()
+        staged = self.raw / "staged.json"
+        staged.write_bytes(original)
+        state_before = self.state_path.read_text(encoding="utf-8")
+
+        code, out = self.run_helper("receive", str(self.dir), "--staged", str(staged))
+        self.assertEqual(0, code, out)
+        self.assertEqual(original, target.read_bytes())
+        self.assertEqual(state_before, self.state_path.read_text(encoding="utf-8"))
+        self.assertIn("main-agent acceptance actions", out)
+
+    def test_receive_refuses_a_mismatched_binding(self) -> None:
+        target = self.dir / "investigations" / "R1-a.json"
+        data = self.read_artifact(target)
+        data["auditBinding"]["auditId"] = "another-audit"
+        staged = self.raw / "foreign.json"
+        self.write_artifact(staged, data)
+        target.unlink()
+
+        code, out = self.run_helper("receive", str(self.dir), "--staged", str(staged))
+        self.assertEqual(1, code)
+        self.assertIn("must equal current audit id", out)
+        self.assertFalse(target.exists())
+
+    def test_receive_refuses_to_replace_without_force(self) -> None:
+        staged = self.raw / "same.json"
+        staged.write_bytes((self.dir / "investigations" / "R1-a.json").read_bytes())
+        code, out = self.run_helper("receive", str(self.dir), "--staged", str(staged))
+        self.assertEqual(1, code)
+        self.assertIn("already exists", out)
+
+    def test_receive_force_reports_a_structural_diff(self) -> None:
+        data = self.read_artifact(self.dir / "investigations" / "R1-a.json")
+        extra_hypothesis = dict(data["hypotheses"][0])
+        extra_hypothesis["id"] = "R1-H2"
+        data["hypotheses"].append(extra_hypothesis)
+        staged = self.raw / "extended.json"
+        self.write_artifact(staged, data)
+
+        code, out = self.run_helper("receive", str(self.dir), "--staged", str(staged), "--force")
+        self.assertEqual(0, code, out)
+        self.assertIn("hypotheses added: R1-H2", out)
+        refreshed = self.read_artifact(self.dir / "investigations" / "R1-a.json")
+        self.assertEqual("R1-H2", refreshed["hypotheses"][1]["id"])
+
+    def test_receive_rejects_staged_for_an_unknown_unit(self) -> None:
+        data = self.read_artifact(self.dir / "investigations" / "R1-a.json")
+        data["unitId"] = "R9"
+        staged = self.raw / "unknown-unit.json"
+        self.write_artifact(staged, data)
+
+        code, out = self.run_helper("receive", str(self.dir), "--staged", str(staged))
+        self.assertEqual(1, code)
+        self.assertIn("no verification unit 'R9'", out)
+
     # verify ----------------------------------------------------------------
 
     def test_verify_delegates_to_the_validator(self) -> None:

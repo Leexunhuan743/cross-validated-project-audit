@@ -24,7 +24,7 @@
 2. **Top risks**：最多三项，按 Severity、Gate/用户影响和 Confidence 排序；写 F id、短标题、Severity/Confidence、现实影响，适用时写 Provenance 和受影响 Gate。
 3. **Required actions**：只列解除 BLOCKED/INCOMPLETE 或满足用户明确验收所必需的动作和退出条件。
 4. **Recommendations**：非阻断的 Medium/Low、PRE_EXISTING 风险和改进项；没有则省略。
-5. **Residual uncertainty**：material residual risk、关键 Evidence/环境缺口、停止原因、validator/持久化/independent validation 限制。
+5. **Residual uncertainty**：material residual risk、关键 Evidence/环境缺口、停止原因、validator/持久化/independent validation 限制；`priorContact` 声明而未建扫描单元（`scopeMode=project`）时的先验接触与利益冲突披露；失败/取消派发（`dispatches[]`）暗示的潜在覆盖缺口。
 
 ### Audit appendix
 

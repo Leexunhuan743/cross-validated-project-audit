@@ -39,7 +39,9 @@ Deliverable
 - **公共路径优先**：用户可见、平台、并发和第三方语义优先从真实入口或对应版本权威契约获取 Evidence，内部看起来正确不算数。
 - **Severity ≠ Confidence ≠ Evidence Strength**：影响大小、整体确定度、单条证据质量分别表达，不许互相折算。
 - **冲突靠判别，不靠投票**：支持与反证冲突时寻找能区分双方的直接观察，不按证据条数或代理数量取胜。
-- **条件概念按需出现**：没有 Gate 就不创建 Gate；不做变更归因就不写 Provenance；Disposition 只在真实进入整改、验证消除，或无 Gate 时明确接受整个 Finding 后物化；没有探索轮就不维护探索计数。**把可选字段照着完整 schema 填满，不会让审计更严谨，只会多一批没有信息的字段**——`references/audit-ledger.md` §3.1.3 给了一份实测通过的最小 `state.json`，照抄起步即可。
+- **条件概念按需出现**：没有 Gate 就不创建 Gate；不做变更归因就不写 Provenance；Disposition 只在真实进入整改、验证消除，或无 Gate 时明确接受整个 Finding 后物化；没有探索轮就不维护探索计数；先验接触（`priorContact`）、失败派发登记（`dispatches[]`）与超范围外溢（`peripheralObservations`）同样只在触发时物化。**把可选字段照着完整 schema 填满，不会让审计更严谨，只会多一批没有信息的字段**——`references/audit-ledger.md` §3.1.3 给了一份实测通过的最小 `state.json`，照抄起步即可。
+- **先验接触必须显式化**：主代理是被审变更的实现者或此前的非正式验证者时，契约写 `priorContact` 并新建一个 REQUIRED 变更面扫描 Claim（`scopeMode=project` 无 diff 可扫，改为披露并建议独立第二审计者）——契约作者的先验决定他会问什么问题，盲区不能只靠自觉。
+- **阴性结论也要复核**：verified 有最低复核深度（重导决定性证据链或复跑探针，FINAL 前抽样），漏网缺陷可以藏在一个标签同为 verified 的干净单元里。
 - **合法结束不等于 clean conclusion**：关键证据不可得时，受限报告或 INCOMPLETE 是正确结果。
 - **状态改变不覆盖历史**：权威 target/snapshot/scope/shared facts 发生契约外实质变化时，旧实例冻结为 SUPERSEDED，新实例从 ACTIVE 重新取证，不把旧裁决复制为当前结论。事先约定的 audit-and-fix PRE→POST 转换是同一任务契约的执行，不是外部换目标。
 - **穷尽要求可证明**：用户明确要求逐文件/逐行时，非空 scope inventory、完成项、排除项和最终 snapshot 写入 `scopeCoverage`；未闭合成员在没有已确认 blocker 时使相关 Gate 为 INCOMPLETE，已有 blocker 时保持 BLOCKED 并同时披露缺口。
@@ -90,9 +92,12 @@ python -B -m unittest discover -s scripts          # 全量回归：validator + 
 - high/highest Claim-level Sufficiency、highest 异质方法和显式 independent 要求；
 - **Gate 是否强于当前状态允许的结果**（validator 会按状态重算并与声明比对）；
 - Gate、Provenance、探索与 exhaustive scope coverage，以及 audit-and-fix 批次 DAG、依赖、generation、验收 Evidence 和 FINAL 状态；
+- 触发式字段 `dispatches[]` / `priorContact` 的 allowlist、非空与去重，以及 coverageSummary 的 `peripheralObservations`；
 - `--state-root` 下的闭合活动/归档布局、缺失 state 的半成品目录、误入 archive 的 ACTIVE 实例、重复 audit id、双向 supersession 链、多后继和环。
 
-仓库自带 134 个回归测试覆盖上述每一项（validator 102 个 + 状态辅助脚本 32 个，`discover -s scripts` 会一次跑完）。改动任一脚本后应全量跑一遍——只跑单个测试文件会漏掉另一个脚本的回归。
+仓库自带 148 个回归测试覆盖上述每一项（validator 106 个 + 状态辅助脚本 42 个，`discover -s scripts` 会一次跑完）。改动任一脚本后应全量跑一遍——只跑单个测试文件会漏掉另一个脚本的回归。
+
+关键报错消息末尾附有所违反规则的文档指针（如 `[see audit-ledger.md「Verification units」]`），带章节标题、不带 § 号，避免"靠失败发现不变量"。
 
 validator 通过只证明状态内部一致，不证明代码事实和风险判断正确。Python 或持久化不可用时，Agent 必须按同一不变量人工检查并披露限制。
 
@@ -102,6 +107,13 @@ validator 通过只证明状态内部一致，不证明代码事实和风险判�
 
 ```text
 python -B scripts/audit_state.py init <dir> --id X --target T --scope S --objectives O...
+python -B scripts/audit_state.py check <dir> --artifact investigations/R1-a.json
+#   接收侧：对一份调查 artifact 做全量校验（binding/schema/与所属 Unit 一致）
+python -B scripts/audit_state.py check --standalone --artifact <staged.json> --audit-id X \
+    --snapshot-json S --unit-id R1 --claim-id Q1 --method M
+#   调查者返回前自检；不读 state.json，只查 schema、id 前缀与工件内部自洽
+python -B scripts/audit_state.py receive <dir> --staged <staged.json>
+#   接收事务：校验 + 原样落盘 canonical 路径 + 替换时报告结构差异；不做归一、不写 state 引用
 python -B scripts/audit_state.py bind <dir>                   # 给所有被引用 artifact 打 auditBinding
 python -B scripts/audit_state.py bind <dir> --check           # 只报告不修改
 python -B scripts/audit_state.py bind <dir> --artifact <file> # 只处理指定文件
@@ -109,7 +121,7 @@ python -B scripts/audit_state.py lint <dir>                   # 机械一致性�
 python -B scripts/audit_state.py verify <dir>                 # 转调 validator
 ```
 
-`bind` 有一条不自动化的规则：遇到**已存在但不匹配**的 `auditBinding`，它默认**拒绝覆盖**并提示"该证据属于另一次审计，必须重新取证而非重新打标"。只有显式 `--force` 才覆盖——因为重新打标会把旧快照的证据洗白成当前证据。
+`bind` 和 `receive` 共有一条不自动化的规则：遇到**已存在但不匹配**的 `auditBinding`，它们默认**拒绝**并提示"该证据属于另一次审计，必须重新取证而非重新打标"。只有显式 `--force` 才覆盖 bind 的拒绝——因为重新打标会把旧快照的证据洗白成当前证据。SKILL.md §4 把各命令的触发时机列为义务：调查者返回前 `check --standalone`、接收时 `receive`、artifact 落盘后 `bind`、重要变更后先 `lint` 再 validator。
 
 它**只做机械操作**：不推断 Severity、Decision、Sufficiency 或 Gate 结果，也不替代 validator——合法性仍由 validator 裁决。没有 Python 时手工照 `references/audit-ledger.md` §3.1.3 模板写即可，协议不依赖它。
 
@@ -165,7 +177,7 @@ python -B scripts/audit_state.py verify <dir>                 # 转调 validator
 | `references/core-failure-patterns.md` | 风险地图有盲区或需要 Hypothesis seeds | 按需 |
 | `references/fix-verification.md` | 实施修复或严格修复验证 | 完整档 |
 | `scripts/validate_audit_state.py` | 可选校验器，Python 3.9+ | 可选 |
-| `scripts/audit_state.py` | 可选机械辅助：init / bind / lint / verify | 可选 |
+| `scripts/audit_state.py` | 可选机械辅助：init / check / receive / bind / lint / verify | 可选 |
 
 当前仓库只维护中文协议 v2，不再附带独立英文变体。
 

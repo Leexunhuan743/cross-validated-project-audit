@@ -1838,6 +1838,94 @@ class SemanticInvariantTests(unittest.TestCase):
         errors = self.mutated_errors("valid-release-gate", mutate)
         self.assert_error_contains(errors, "expected array")
 
+    # new conditional fields and error pointers ------------------------------
+
+    def test_dispatches_are_optional_but_validated_when_present(self) -> None:
+        def empty(state: dict) -> None:
+            state["dispatches"] = []
+
+        errors = self.mutated_errors("valid-ordinary-no-gate", empty)
+        self.assert_error_contains(errors, "must be a non-empty array when present")
+
+        def missing_reason(state: dict) -> None:
+            state["dispatches"] = [{"unit": "R7"}]
+
+        errors = self.mutated_errors("valid-ordinary-no-gate", missing_reason)
+        self.assert_error_contains(errors, "missing required key 'reason'")
+
+        def unknown_key(state: dict) -> None:
+            state["dispatches"] = [{"unit": "R7", "reason": "cancelled by the platform", "attempt": 2}]
+
+        errors = self.mutated_errors("valid-ordinary-no-gate", unknown_key)
+        self.assert_error_contains(errors, "unsupported keys")
+
+        def recorded(state: dict) -> None:
+            state["dispatches"] = [
+                {"unit": "R7", "reason": "cancelled by the platform concurrency limit",
+                 "residue": "%TEMP%/cvpa-r7 scratch (cleaned)"}
+            ]
+
+        self.assertEqual([], self.mutated_errors("valid-ordinary-no-gate", recorded))
+
+    def test_prior_contact_members_are_constrained(self) -> None:
+        def implementer(state: dict) -> None:
+            state["audit"]["priorContact"] = ["implementer"]
+
+        self.assertEqual([], self.mutated_errors("valid-ordinary-no-gate", implementer))
+
+        def combined(state: dict) -> None:
+            state["audit"]["priorContact"] = ["implementer", "informal-verifier"]
+
+        self.assertEqual([], self.mutated_errors("valid-ordinary-no-gate", combined))
+
+        def placeholder_member(state: dict) -> None:
+            state["audit"]["priorContact"] = ["none"]
+
+        errors = self.mutated_errors("valid-ordinary-no-gate", placeholder_member)
+        self.assert_error_contains(errors, "invalid value 'none'")
+
+        def duplicate_member(state: dict) -> None:
+            state["audit"]["priorContact"] = ["implementer", "implementer"]
+
+        errors = self.mutated_errors("valid-ordinary-no-gate", duplicate_member)
+        self.assert_error_contains(errors, "contains duplicates")
+
+    def test_peripheral_observations_accept_only_nonempty_strings(self) -> None:
+        def recorded(target: Path) -> None:
+            path = target / "investigations" / "R1-main.json"
+            data = json.loads(path.read_text(encoding="utf-8"))
+            data["coverageSummary"]["peripheralObservations"] = ["dashboard-runtime.js:12 looks suspicious"]
+            path.write_text(json.dumps(data, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+
+        self.assertEqual([], self.mutated_errors("valid-ordinary-no-gate", mutate_files=recorded))
+
+        def malformed(target: Path) -> None:
+            path = target / "investigations" / "R1-main.json"
+            data = json.loads(path.read_text(encoding="utf-8"))
+            data["coverageSummary"]["peripheralObservations"] = [42]
+            path.write_text(json.dumps(data, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+
+        errors = self.mutated_errors("valid-ordinary-no-gate", mutate_files=malformed)
+        self.assert_error_contains(errors, "expected non-empty string")
+
+    def test_validator_errors_carry_document_pointers(self) -> None:
+        def no_discrimination(target: Path) -> None:
+            path = target / "investigations" / "R1-main.json"
+            data = json.loads(path.read_text(encoding="utf-8"))
+            data["evidence"][0]["testDiscrimination"]["result"] = "NO"
+            path.write_text(json.dumps(data, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+
+        errors = self.mutated_errors("valid-fix-verification", mutate_files=no_discrimination)
+        self.assert_error_contains(errors, "review-dimensions.md「Test discrimination 记录」")
+
+        def bad_disposition(state: dict) -> None:
+            state["findings"][0]["decision"] = "CONDITIONAL"
+            state["findings"][0]["confidence"] = "Medium"
+            state["findings"][0]["disposition"] = "REMEDIATING"
+
+        errors = self.mutated_errors("valid-release-gate", bad_disposition)
+        self.assert_error_contains(errors, "audit-ledger.md「Finding」")
+
     # reporting hygiene -----------------------------------------------------
 
     def test_uncleaned_probes_are_reported_once(self) -> None:

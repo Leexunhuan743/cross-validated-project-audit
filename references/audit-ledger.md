@@ -18,7 +18,7 @@
 <stateRoot>/archive/<auditId>/             # 已归档实例；可在名称后加冲突后缀
 ```
 
-目录布局是闭合 allowlist：根目录只能有 `state.json`、可选的 `report.md` / `fix-map.md`，以及 `investigations/`、`verification/`、`probes/` 三个目录；`investigationFile` 只能指向 `investigations/<flat>.json`，`verificationFile` 只能指向 `verification/<flat>.json`，且前两个目录只能有被 `state.json` 引用的平铺 JSON。`probes/` 只容纳批准的临时探针，不能承载任何 state 引用的正式 artifact，且 FINAL 前必须清空。禁止同时创建旧式 `audit.md`、`project-map.md`、`coverage.md`、`ledger.md` 或独立 live Finding 表。调查和 verification 文件是证据来源；当前任务契约、Claim、Verification Unit、Finding、Decision、Disposition、Residual risk、Gate 和修复批次状态只以 `state.json` 为准。`fix-map.md` 若存在只是 `state.json.fixWorkflow` 的派生人类视图，恢复和 validator 不消费它。
+目录布局是闭合 allowlist：根目录只能有 `state.json`、可选的 `report.md` / `fix-map.md`，以及 `investigations/`、`verification/`、`probes/` 三个目录；`investigationFile` 只能指向 `investigations/<flat>.json`，`verificationFile` 只能指向 `verification/<flat>.json`，且前两个目录只能有被 `state.json` 引用的平铺 JSON。`probes/` 容纳批准的临时探针与主代理自己的操作留痕（一次性脚本、接收归一化的 diff 记录、执行附录的临时工件）；它们不能承载任何 state 引用的正式 artifact，且 FINAL 前必须清空。禁止同时创建旧式 `audit.md`、`project-map.md`、`coverage.md`、`ledger.md` 或独立 live Finding 表。调查和 verification 文件是证据来源；当前任务契约、Claim、Verification Unit、Finding、Decision、Disposition、Residual risk、Gate 和修复批次状态只以 `state.json` 为准。`fix-map.md` 若存在只是 `state.json.fixWorkflow` 的派生人类视图，恢复和 validator 不消费它。
 
 安全 state root 的选择顺序：
 
@@ -81,7 +81,7 @@ audit-only 默认不得修改 `.gitignore`、`.git/info/exclude` 或其它 Git m
 - `phase`：`ACTIVE` / `FINAL` / `SUPERSEDED`。FINAL 不得含 `Decision=PENDING`；SUPERSEDED 是被新审计接替的冻结历史，不是可恢复的工作态。
 - `availableEvidence` 是**可选的**证据类型清单，只供主代理判断"能取到什么证据"时参考。它不参与任何校验，也从不影响 Gate 或 Decision；省略即可，不要为填满字段而写。
 - `objectiveProfiles` 必须包含且只包含一次 `general`；适用时再加入 `security` / `fix-verification`。`scopeResolution` 的来源选择、候选和询问规则由 [SKILL.md 的 Scope Resolution Protocol](../SKILL.md#scope-resolution-protocol) 唯一定义；`scopeResolution.assumption` 只在 `basis=ASSUMED` 时创建。
-- 协议对象默认闭合。只有每个支持位置的可选 `metadata` 对象可保存非语义、工具私有且 JSON 可表示的附加信息；其内容不能新增、覆盖或参与 task contract、Evidence、Finding、Gate 或恢复语义。未知协议字段一律是校验错误。
+- 协议对象默认闭合。只有每个支持位置的可选 `metadata` 对象可保存非语义、工具私有且 JSON 可表示的附加信息；其内容不能新增、覆盖或参与 task contract、Evidence、Finding、Gate 或恢复语义。未知协议字段一律是校验错误。执行附录（命令与工作目录、仓外目录清单、开工/收工 git status、结果工件哈希）短期可落 `audit.metadata`：它是过程记录而非语义字段，报告引用时须标注其来源；将其升为一等触发式字段时，须一并解决"过程证据放非语义字段"的章程张力。
 - `audit.snapshot` 始终存在。Git base/head、archive hash、部署版本等不可变身份写入其中；ACTIVE 在身份尚未形成时必须显式写 `null`，每个 FINAL 必须写不可变 identity，使结论不会被错用到漂移工件。非 null 形状是以 `kind` 区分的有界联合：
 
 ```json
@@ -103,6 +103,8 @@ audit-only 默认不得修改 `.gitignore`、`.git/info/exclude` 或其它 Git m
 | 用户请求了合并、发布或系统就绪判断 | Gate |
 | 用户要求穷尽或自定义了停止条件 | 穷尽覆盖 |
 | 用户、组织策略或已请求 Gate 强制独立验证 | 独立验证 |
+| 主代理与目标变更存在先验接触 | 先验接触与变更面扫描 |
+| 发生失败或被取消的派发 | 失败派发登记 |
 | 发生契约外实质变化、需冻结旧实例另起新实例 | 接替 |
 | 存在未提交修复，或 `executionMode=audit-and-fix` | 未提交修复与 audit-and-fix |
 
@@ -158,6 +160,20 @@ audit-only 默认不得修改 `.gitignore`、`.git/info/exclude` 或其它 Git m
 **独立验证**
 
 - 用户、适用组织策略或已请求 Gate 明确要求 independent validation 时，写非空去重数组 `audit.independentValidationRequiredFor`；成员只允许 `AUDIT` 或 `audit.gates.targets` 中的实际 target。`AUDIT` 约束所有 highest Claim，且不得与 target 成员混用；多个 target 可写为如 `["RELEASE", "SYSTEM"]`。没有硬要求时省略。是否成立按 §3.4 的机械判据认定。
+
+**先验接触与变更面扫描**
+
+风险地图作者同时是被审变更的实现者或此前的非正式验证者时，claim 集从构造上继承其盲区（"契约作者的先验决定他会问什么问题"）。为把该盲区显式化：
+
+- 主代理在本次审计开始前接触过目标同一实质内容时，写非空去重数组 `audit.priorContact`，成员只允许 `implementer`（主代理实现了被审变更）或 `informal-verifier`（主代理或其代理者在审计开始前对同一实质内容形成过验证性判断——非正式 review、先前测试、修复实现，无论正式角色）；两个字段可并列。无接触时整个字段省略；不存在 `none` 占位值。字段存在即触发扫描义务。
+- 触发时必须新建一个 **REQUIRED** 的变更面扫描 Claim：statement 写成可证伪断言（"变更面及其直接调用者中不存在已声明 claims 之外的 material 风险"）；scope 机械定义为变更触达文件及其直接调用者——`change`/`pr` 用 diff、`author-commits` 用范围内作者触达文件；priority 用 `normal`（覆盖性扫描，不要求 discrimination/sufficiency）。有 Gate 时该 Claim 携带全部请求 target 的 `gateTargets`——其未完成性对放行信心是构造性 material 的。
+- `scopeMode=project` 没有 diff 可扫，不建扫描 Claim；改为在 Residual uncertainty 披露先验接触与利益冲突，并建议独立第二审计者。
+- `executionMode=audit-and-fix` 的扫描只挂 PRE-fix 评估；POST-fix 由 fixWorkflow VERIFY 批次与 `resolutionChallenge` 承担。`audit-only` 的外部修复核验不建批次 DAG，兜底同样只有 `resolutionChallenge`。
+- 扫描单元是正常 investigation：有自己的 hypotheses、evidence 和 coverageSummary（checked 列实际扫过的面）；发现 material 风险走正常 H→F 路径；低于 material 的外溢观察写 `coverageSummary.peripheralObservations`。扫描结论多为 verified clean，其可信度依赖"阴性单元最低复核深度"（§3.4）——两者必须同时执行。
+
+**失败派发登记**
+
+- 仅在发生失败或被取消的派发时创建顶层 `dispatches[]`（平时省略）；每个条目结构化为 `{"unit", "reason", "residue?"}`：unit 是派发目标单元 id 或标签，reason 写失败/取消原因（平台并发限制、执行者不可用等），residue 记录仓外残留及其清理状态（有则写）。被取消前已执行的工作不可恢复为 Evidence，但登记本身让"这里可能存在未覆盖区域"在 state 中可见，供报告披露与后续审计参考。
 
 **接替**
 
@@ -351,7 +367,7 @@ audit-only 默认不得修改 `.gitignore`、`.git/info/exclude` 或其它 Git m
 {"id": "P1", "fact": "public POST /login calls auth.validate", "source": "src/http.go:40"}
 ```
 
-不得写 Hypothesis、严重度、风险接受、其他调查者结论或“这里可能有 bug”。target/scope/snapshot 已由 `audit` 拥有，不在 shared facts 复制。
+不得写 Hypothesis、严重度、风险接受、其他调查者结论或“这里可能有 bug”。target/scope/snapshot 已由 `audit` 拥有，不在 shared facts 复制。`source` 必须是可核对的工件引用（`path:line`）或可重跑的命令，不得是主代理或调查者的记忆、结论或转述——依赖"我记得合并时取了哪一侧"这类不可核对来源的 shared fact，其下游发现链不可信。
 
 若调查者用 `MAP-CORRECTION + DIRECT Evidence` 证明权威 shared fact 错误，主代理停止消费依赖该事实的结论，按上述双向规则接替整个审计实例。旧 state 仅冻结为追溯历史；新 state 使用纠正后的事实重新建 Claim、Unit 和裁决，不保留局部“仍有效”的 live 状态。
 
@@ -403,7 +419,7 @@ audit-only 默认不得修改 `.gitignore`、`.git/info/exclude` 或其它 Git m
 ```
 
 - 一个 Unit = 一个 Claim + 一个 verification archetype；第二种方法新建第二个 Unit，不复制 Claim 字段。
-- status 单向推进：`planned → dispatched → reported → verified`。到 reported 才写 investigationFile；主代理逐个核对 H/E 后才 verified。
+- status 单向推进：`planned → dispatched → reported → verified`。到 reported 才写 investigationFile；主代理逐个核对 H/E 后才 verified。verified 有最低复核深度：主代理至少重导该 Unit 的一条决定性 Evidence 链，或复跑一个判别探针；FINAL 前对每个 Claim 至少抽样重跑一次；客观不可复跑时在 verification 或报告中披露。阴性（无 Finding 的 verified clean）单元同样适用——漏网缺陷恰好可以藏在一个标签同为 verified 的干净单元里，摘要级核对不构成复核。
 - `investigationFile` 与 Finding 的 `verificationFile` 必须是位于当前审计目录内的相对 `.json` 路径；禁止绝对路径和目录逃逸，保证移动与归档后仍可解析。
 - Unit 的完成义务继承 Claim：REQUIRED Claim 下任何已物化 Unit 都是 required，未完成时会形成完整性缺口；不要预建“可选备用 Unit”，需要义务外搜索时另建 EXPLORATORY Claim。Unit 不保存 Sufficiency；verified 表示 H/E 已核对，且其 investigation 至少包含一条编号 DIRECT Evidence。
 - `isolation` 只在需要证明或否定 independent validation 时写 `ISOLATED|NOT-ISOLATED`，不为普通单元填 `N/A`。
@@ -586,7 +602,7 @@ validator 只检查当前快照及 retry/invalidation 原因，不凭空重建�
 }
 ```
 
-Hypothesis id 用 `<unit>-H<n>`；Evidence id 用 `<unit>-E<n>`。每个 material H 的 `evidenceRefs` 必须非空；`supported` 至少引用一条 `polarity=supports` 的 DIRECT Evidence，`refuted` 至少引用一条 `polarity=refutes` 的 DIRECT Evidence，不能只改 result 标签消除风险。`supported` 只配 `promote-to-finding`，`refuted` 只配 `close`，`unresolved` 配 `promote-to-finding`（决定性缺口未由新的 DIRECT Evidence 解决前只能形成 CONDITIONAL）或 `residual-gap`；`counter-supported` 的原 H 必须关闭，若缩窄后仍 material 则另建新 H。没有 material H 时 hypotheses 为空，仍填写 coverageSummary。测试成为 material Evidence 时在该 E 增加 `testDiscrimination={test,result,basis,issue?}`。
+Hypothesis id 用 `<unit>-H<n>`；Evidence id 用 `<unit>-E<n>`。每个 material H 的 `evidenceRefs` 必须非空；`supported` 至少引用一条 `polarity=supports` 的 DIRECT Evidence，`refuted` 至少引用一条 `polarity=refutes` 的 DIRECT Evidence，不能只改 result 标签消除风险。`supported` 只配 `promote-to-finding`，`refuted` 只配 `close`，`unresolved` 配 `promote-to-finding`（决定性缺口未由新的 DIRECT Evidence 解决前只能形成 CONDITIONAL）或 `residual-gap`；`counter-supported` 的原 H 必须关闭，若缩窄后仍 material 则另建新 H。没有 material H 时 hypotheses 为空，仍填写 coverageSummary。测试成为 material Evidence 时在该 E 增加 `testDiscrimination={test,result,basis,issue?}`。低于 material 的超范围外溢观察写可选的 `coverageSummary.peripheralObservations[]`（字符串数组，主代理接收时集中 triage）。
 
 ### 4.2 `verification/F<n>.json`
 
@@ -640,6 +656,7 @@ Critical/High Finding 写 `disposition=RESOLVED-VERIFIED` 时，必须在同一 
 ## 5. 更新、校验与恢复
 
 - 调查者先通过平台消息或 state root 外的批准临时位置交付完整 JSON；主代理先在 state root 外保留 staged 原件，并在隔离副本中把 canonical artifact 与 proposed `state.json` 组合后运行 validator。发布顺序固定为：原子创建 canonical artifact，再原子替换 `state.json` 作为 commit record；禁止 state-first，避免 dangling reference。两步之间中断只可能留下 unreferenced artifact：恢复时不消费它，先核对其 binding/unit/method 与仍保留的 staged hash，把它移动到 state-root 外 quarantine 后恢复旧合法 state，再从 staged 原件重试；无法唯一匹配时保留现场并请求决定。完成后才删除 staging/quarantine。不要到收尾时一次性把 planned 补成 verified。
+- **内容级不合格接收**：上一条处理崩溃中断，本条处理更高频的 schema 漂移与语义不一致（自相矛盾的 result/recommendation、自造字段、嵌套结构漂移）。规则：①staged 原件强制保留到审计收口，主代理不得就地改写调查工件——任何归一化（重排键、修剪漂移字段、措辞精化）都必须先留原件，并以 diff/脚本形式把转换记录留痕进 `probes/`；②机械形式问题（键序、空白、可直接从 Evidence 核对的措辞）主代理可代为归一，但必须留痕；③改变语义含量的动作一律不得代做：调查者自报的 result/recommendation 与其 Evidence 极性机械冲突、或把 H 降级为覆盖摘要等重分类，必须退回调查者重写，或由主代理以新 DIRECT Evidence 按正常流程重建——凭自由裁量静默重分类是证据洗白。可选的 `audit_state.py receive` 只做"校验 + 落盘 canonical + 报告差异"三件机械事，不做归一、不写 state 引用、不推 `reported`；binding 不匹配时与 `bind` 同款拒绝并提示重新取证。
 - 每次 material 接收事务达到稳定态后运行 validator；它不用于调查者正在写文件、尚未被 state 接收的中间时刻。FAIL 时不得生成强于当前合法状态的报告或 Gate。
 - 可选的 `scripts/audit_state.py bind <dir>` 可在每份 artifact 落盘后把 `audit.id` / `audit.snapshot` 传播成它的 `auditBinding`，省去逐文件手写；`lint <dir>` 只读地报告 id 前缀、`reconciliations` 与 hypotheses 的镜像关系等机械问题，适合在 validator 之前先跑一遍。两者都不做语义判断，也不替代 validator。注意 `bind` 遇到**已存在但不匹配**的 binding 会拒绝覆盖（该证据属于另一次审计，须重新取证），只有 `--force` 例外。
 - target、snapshot、scope、objectives、决策问题或权威 shared facts 发生契约外实质变化时，按 §3.1 接替整个审计实例；不分“还是同一问题”而在原 state 里重开。事先声明的 audit-and-fix 转换按前段执行。

@@ -38,6 +38,8 @@ CLI、UI、迁移、SDK、计划等不是额外的调度主键；它们用于决
 
 方法可产生辅助证据，但**不得静默换方法后仍把结果算作原 archetype 的验证证明**。某方法因环境不可用无法执行时，记录 coverage gap，再选择能回答同一风险主张的替代方法；替代方法必须在矩阵中显式登记。
 
+两条判据防止计划层越位：**判别计划是关于世界的主张，不是实验配方**——`Safe prediction / Failure prediction / Discriminating observation` 描述"如果实现正确/错误，世界分别是什么样"，探针矩阵与实验步骤属于方法 SOP 与调查者设计，主代理不代替调查者预先枚举结果。**Unit scope 取包含 Claim 完整数据流的最小边界**——从入口到效果可完整追踪，而不是任意的文件子集。
+
 ### Test discrimination 记录
 
 当测试被用于支撑 material Finding、回归保护或修复验收时，不能只写“tests green”。至少记录：
@@ -55,6 +57,41 @@ Test issue: ENCODES_FAILURE / MISSING_REGRESSION / —
 - `UNKNOWN`：没有做 PRE-fix、变异或等价判别，不能因为测试存在/通过而升级。
 - `ENCODES_FAILURE` 表示测试把错误行为写成 expected；`MISSING_REGRESSION` 表示缺少能重现该 Finding 的回归案例。二者是可选 issue，不与四值判别力混成一个枚举。
 - 记录写在产生该测试 Evidence 的 investigation/verification JSON 内；`state.json` 不复制 Test discrimination。
+
+### 方法 SOP 骨架（可适配）
+
+每个 archetype 配一段可适配 SOP：主代理只填参数（入口、范围、边界），不替调查者预先枚举结果。三条护栏：SOP 与 Claim 的 `discrimination` 冲突时**以 Claim 为准**（SOP 是配方骨架，不能反噬"判别计划是关于世界的主张"）；探针规模默认值是**起步规模**而非目标值，按风险相称性增减；未列出的 archetype（user-path-trace、state-invariant-analysis、contract-spec-verification）按需补充同款骨架。
+
+**implementation-trace**
+
+1. 从 Claim 指定的入口读真实实现，沿调用/数据/错误路径追踪到效果，每跳记录 `file:line`。
+2. 在每个条件分支核对 guard 是否覆盖 Claim 的触发条件。
+3. 定位判别点：哪一行的行为区分 safe/failure 两种预测。
+4. 把未走到的分支与假设记入 coverageSummary 的 checked/gaps。
+5. 起步规模：一条主干链 + 每个关键分支一次对照；不为凑数展开全图。
+
+**adversarial-challenge**
+
+1. 从 Claim 的触发条件构造反例：边界值、畸形输入、时序交错、失败注入。
+2. 先验证反例能到达目标路径（可达性），再验证到达后的行为（影响）。
+3. 每个反例记录输入、入口、预期 safe 行为与实际观察（expect/actual 分离）。
+4. 起步规模：3–5 个覆盖不同失败维度的反例；机制类 Claim 优先构造一个能区分两种预测的反例，而不是堆数量。
+
+**test-discrimination**
+
+1. 找到声称覆盖目标行为的测试；读它断言了什么、经过了哪些层。
+2. 判别力验证优先在 PRE-fix 版本运行；需恢复旧 guard、做变异或注入失败时，只在仓库外副本、临时 worktree 或其他可丢弃环境中进行。
+3. 按判别探针纪律执行：先确认测试在正确实现上通过（阳性对照），再确认在 PRE-fix/变异上失败（fail-closed），全程记录 expect/actual。
+4. 按四值判别力记录 Test discrimination 与 basis；generic green 不写。
+5. 起步规模：每个目标行为 1 个判别测试 + 1 次变异验证；不为形式复制全套回归。
+
+**history-regression-analysis**
+
+1. 用 merge-base 与三点 diff 确定变更补丁；对可疑 hunk 追溯其引入 commit 与历史实现。
+2. 对每个 hunk 问三个问题：base 行为是什么、变更改了什么、是否有调用方或测试依赖旧行为。
+3. 核对 revert/supersede/cherry-pick 等价性（`git cherry`、`range-diff`），不从提交数量推断内容关系。
+4. 判别点：base 正确、head 变错指向 REGRESSED；base 就错指向 PRE_EXISTING/EXPOSED——证据交给主代理按统一评估模型定 Provenance。
+5. 起步规模：每个可疑 hunk 一次 base/head 对照；只在合并/回退类 Claim 上展开序列级 range-diff。
 
 
 ## 3. 证据视角（辅助，不作为调度主键）
@@ -79,7 +116,7 @@ Test issue: ENCODES_FAILURE / MISSING_REGRESSION / —
 5. 方法异质与执行者独立分开。同一执行者的不同方法可满足异质性，但**不构成** independent validation——独立验证还要求先满足上一条的异质覆盖（highest Claim 至少两个 verified REQUIRED Unit 使用不同 archetype），完整判据见 [audit-ledger.md](audit-ledger.md) §3.4（权威）。没有明确独立验证硬要求时，能力不足可用方法级验证收口并披露限制；存在硬要求时相应结论保持不完整。
 6. 不同调查者可以共享 baseline、scope、术语、公共入口、changed files 等 DIRECT 事实；若共享了前一路径的 Hypothesis/Finding/Decision 或解释性结论，就不能把该 Unit 标为 ISOLATED。两个执行者用同一 archetype、同一证据路径仍只算冗余复核。
 7. 所有准备提升为 Finding 的 material Hypothesis 都先完成最小 disconfirmation；暂定 Critical/High 的 Finding 在 Decision 前规划/尝试第二种异质 archetype 或等价直接反证。assessment model 决定裁决前提；本模块不为凑形式复制代理。
-8. 一个执行者可以承担多个 normal Unit，一个 Claim 也可以由多个 Unit 覆盖；不要求每个风险面使用所有 archetype，选择最少但足以区分关键失败模式的方法集合。
+8. 一个执行者可以承担多个 normal Unit，一个 Claim 也可以由多个 Unit 覆盖；不要求每个风险面使用所有 archetype，选择最少但足以区分关键失败模式的方法集合。high/highest Unit 原则上不复用同一执行者；客观必须复用时在派发与报告中披露，并按实际隔离状态记录 `isolation`——未隔离即不得计入 independent validation。
 9. 只有真实开展义务外搜索时才创建 EXPLORATORY Claim 和 `exploration` 对象。本模块只识别 material delta，不重复定义停止阈值。
 10. 暂定 Critical/High Finding 的 Decision 第二挑战不另建平行状态：异质挑战必须指向真实 Unit，等价反证必须来自主 verification 新 Evidence，统一写入 `verification/F<n>.json.challenge`。Critical/High 修复效果的不同方法复核另写同文件的 `resolutionChallenge`，避免把“问题曾成立”和“当前已修复”混成一个结论；字段组合由 [audit-ledger.md](audit-ledger.md) 规范。
 
