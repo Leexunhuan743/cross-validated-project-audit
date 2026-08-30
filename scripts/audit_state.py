@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Optional helper for building protocol-v2 audit state.
+"""Optional helper for building cross-validated-project-audit protocol state.
 
 The validator remains the only authority on whether a state is legal. This
 helper exists solely to remove mechanical work that a main agent otherwise
@@ -188,7 +188,8 @@ def cmd_init(args: argparse.Namespace) -> int:
         return fail("--assumption is only allowed when --basis is ASSUMED")
 
     state = {
-        "schemaVersion": 2,
+        # New instances always use v3; v2 remains accepted only for archives.
+        "schemaVersion": 3,
         "phase": "ACTIVE",
         "audit": {
             "id": args.id,
@@ -537,6 +538,7 @@ def cmd_check(args: argparse.Namespace) -> int:
         v = validator.Validation(artifact.resolve().parent)
         v.audit_id = args.audit_id
         v.snapshot = parse_snapshot_arg(args.snapshot_json)
+        v.schema_version = args.schema_version
         validator.validate_investigation(v, artifact, fake_unit, 0)
         return report_validation(v, f"standalone check {artifact.name}")
 
@@ -658,7 +660,7 @@ def cmd_receive(args: argparse.Namespace) -> int:
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        description="Optional helper for building cross-validated-project-audit protocol-v2 state.",
+        description="Optional helper for building cross-validated-project-audit protocol state.",
         epilog="The validator is the authority; this helper only removes mechanical repetition.",
     )
     sub = parser.add_subparsers(dest="command", required=True)
@@ -694,6 +696,8 @@ def build_parser() -> argparse.ArgumentParser:
     p_check.add_argument("--method", help="standalone mode: verification archetype from the dispatch prompt")
     p_check.add_argument("--audit-id", help="standalone mode: audit id from the dispatch prompt")
     p_check.add_argument("--snapshot-json", help="standalone mode: immutable snapshot object as JSON, or null")
+    p_check.add_argument("--schema-version", type=int, default=3,
+                         help="schema version for standalone checks (default 3)")
     p_check.set_defaults(func=cmd_check)
 
     p_receive = sub.add_parser("receive", help="validate a staged investigation and copy it to its canonical path")

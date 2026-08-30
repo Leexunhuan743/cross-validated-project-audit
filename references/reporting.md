@@ -1,6 +1,6 @@
 # 审计报告与 Gate
 
-最终报告按 Finding → Decision 聚合，不按代理或 H/E 条目倾倒。Finding、Decision、Gate、Disposition 和其它 live 结论字段只从最终 `state.json` 读取；investigation/verification JSON 不能覆盖这些状态。用户可见的“已验证正确行为”只能从 `state.json` 引用且状态为 verified 的 Unit 对应 `coverageSummary.verifiedBehaviors` 读取，并必须能回指同一 artifact 中的 DIRECT Evidence；不得从 Claim statement 或未 verified artifact 自行推导。
+最终报告按 Finding → Decision 聚合，不按代理或 H/E 条目倾倒。Finding、Decision、Gate、Disposition 和其它 live 结论字段只从最终 `state.json` 读取；investigation/verification JSON 不能覆盖这些状态。用户可见的“已验证正确行为”只能从 `state.json` 引用且状态为 verified 的 Unit 对应 `coverageSummary.verifiedBehaviors` 读取，并必须能回指同一 artifact 中的 DIRECT Evidence——schemaVersion 3 中每条 `{behavior, evidenceRefs[]}` 的 refs 由 validator 核对回指；v2 归档实例为裸字符串，引用时须标注无机械回指。不得从 Claim statement 或未 verified artifact 自行推导。
 
 `phase=SUPERSEDED` 的 state 只能作为历史附录或接替链证据，不生成当前 Findings、当前 Gate 或 clean conclusion。最终报告必须绑定新 FINAL 实例的 auditId、target 和不可变 snapshot。
 

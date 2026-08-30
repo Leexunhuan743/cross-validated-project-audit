@@ -31,7 +31,9 @@
   ],
   "coverageSummary": {
     "checked": ["fixed caller, guard and copy path"],
-    "verifiedBehaviors": ["the old overflow path is unreachable in the bound snapshot"],
+    "verifiedBehaviors": [
+      {"behavior": "the old overflow path is unreachable in the bound snapshot", "evidenceRefs": ["R2-E1"]}
+    ],
     "gaps": []
   }
 }

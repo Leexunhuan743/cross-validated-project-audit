@@ -31,7 +31,9 @@
   ],
   "coverageSummary": {
     "checked": ["handler and middleware"],
-    "verifiedBehaviors": ["malformed tokens are rejected"],
+    "verifiedBehaviors": [
+      {"behavior": "malformed tokens are rejected", "evidenceRefs": ["R1-E1"]}
+    ],
     "gaps": []
   }
 }

@@ -89,7 +89,7 @@ class AuditStateTests(unittest.TestCase):
         code, out = self.run_helper(*self.init_args(target))
         self.assertEqual(0, code, out)
         state = json.loads((target / "state.json").read_text(encoding="utf-8"))
-        self.assertEqual(2, state["schemaVersion"])
+        self.assertEqual(3, state["schemaVersion"])
         self.assertEqual("ACTIVE", state["phase"])
         self.assertEqual("demo-1", state["audit"]["id"])
         self.assertIsNone(state["audit"]["snapshot"])

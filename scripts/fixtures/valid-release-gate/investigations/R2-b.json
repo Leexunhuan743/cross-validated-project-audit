@@ -16,7 +16,9 @@
   ],
   "coverageSummary": {
     "checked": ["public login route"],
-    "verifiedBehaviors": ["malformed tokens are rejected"],
+    "verifiedBehaviors": [
+      {"behavior": "malformed tokens are rejected", "evidenceRefs": ["R2-E1"]}
+    ],
     "gaps": []
   }
 }

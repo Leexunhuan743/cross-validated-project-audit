@@ -90,7 +90,7 @@ Deliverable: <问题报告、追溯报告、修复验证或 Gate 报告>
 
 ## 4. 初始化唯一权威状态
 
-派发前读取 [references/audit-ledger.md](references/audit-ledger.md)，创建一个协议 v2 `state.json`。它是任务契约、共享事实、风险主张、验证单元、Finding、Residual risk 和适用 Gate 的**唯一实时权威状态**；不得同时维护 `audit.md`、`coverage.md`、`ledger.md` 或另一份 live Finding 表。
+派发前读取 [references/audit-ledger.md](references/audit-ledger.md)，创建一个 `schemaVersion: 3` 的 `state.json`（v2 历史实例仍被 validator 接受、不回溯重验；两版差异与过渡期消费指引见 audit-ledger §4.1）。它是任务契约、共享事实、风险主张、验证单元、Finding、Residual risk 和适用 Gate 的**唯一实时权威状态**；不得同时维护 `audit.md`、`coverage.md`、`ledger.md` 或另一份 live Finding 表。
 
 状态目录的实时协议内容只能是下列 allowlist；validator 拒绝根目录的其它文件、未被状态引用的 investigation/verification JSON，以及这些目录中的嵌套路径：
 

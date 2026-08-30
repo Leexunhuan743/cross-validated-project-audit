@@ -1,6 +1,6 @@
 # 权威审计状态、结构与恢复
 
-本文件是协议 v2 状态结构的规范所有者。目标不是记录所有过程文字，而是让范围、风险覆盖、H/E/F/Decision 和 Gate 只有一个实时答案。
+本文件是协议状态结构（schemaVersion 2/3）的规范所有者。目标不是记录所有过程文字，而是让范围、风险覆盖、H/E/F/Decision 和 Gate 只有一个实时答案。
 
 ## 1. 唯一权威状态
 
@@ -54,7 +54,7 @@ audit-only 默认不得修改 `.gitignore`、`.git/info/exclude` 或其它 Git m
 
 ```json
 {
-  "schemaVersion": 2,
+  "schemaVersion": 3,
   "phase": "ACTIVE",
   "audit": {
     "id": "20260822-auth-review",
@@ -78,6 +78,7 @@ audit-only 默认不得修改 `.gitignore`、`.git/info/exclude` 或其它 Git m
 }
 ```
 
+- `schemaVersion`：新实例写 `3`。validator 双版本接受（`{2, 3}`）：v2 仅作为历史归档保持合法、不回溯重验，新实例一律 v3——旧形态冻结为历史并保留日落路径（未来可停止接受 v2）。两个版本的唯一形态差异是 §4.1 的 `coverageSummary.verifiedBehaviors`。
 - `phase`：`ACTIVE` / `FINAL` / `SUPERSEDED`。FINAL 不得含 `Decision=PENDING`；SUPERSEDED 是被新审计接替的冻结历史，不是可恢复的工作态。
 - `availableEvidence` 是**可选的**证据类型清单，只供主代理判断"能取到什么证据"时参考。它不参与任何校验，也从不影响 Gate 或 Decision；省略即可，不要为填满字段而写。
 - `objectiveProfiles` 必须包含且只包含一次 `general`；适用时再加入 `security` / `fix-verification`。`scopeResolution` 的来源选择、候选和询问规则由 [SKILL.md 的 Scope Resolution Protocol](../SKILL.md#scope-resolution-protocol) 唯一定义；`scopeResolution.assumption` 只在 `basis=ASSUMED` 时创建。
@@ -207,7 +208,7 @@ audit-only 默认不得修改 `.gitignore`、`.git/info/exclude` 或其它 Git m
 
 ```json
 {
-  "schemaVersion": 2,
+  "schemaVersion": 3,
   "phase": "FINAL",
   "audit": {
     "id": "minimal-audit",
@@ -602,7 +603,9 @@ validator 只检查当前快照及 retry/invalidation 原因，不凭空重建�
 }
 ```
 
-Hypothesis id 用 `<unit>-H<n>`；Evidence id 用 `<unit>-E<n>`。每个 material H 的 `evidenceRefs` 必须非空；`supported` 至少引用一条 `polarity=supports` 的 DIRECT Evidence，`refuted` 至少引用一条 `polarity=refutes` 的 DIRECT Evidence，不能只改 result 标签消除风险。`supported` 只配 `promote-to-finding`，`refuted` 只配 `close`，`unresolved` 配 `promote-to-finding`（决定性缺口未由新的 DIRECT Evidence 解决前只能形成 CONDITIONAL）或 `residual-gap`；`counter-supported` 的原 H 必须关闭，若缩窄后仍 material 则另建新 H。没有 material H 时 hypotheses 为空，仍填写 coverageSummary。测试成为 material Evidence 时在该 E 增加 `testDiscrimination={test,result,basis,issue?}`。低于 material 的超范围外溢观察写可选的 `coverageSummary.peripheralObservations[]`（字符串数组，主代理接收时集中 triage）。
+Hypothesis id 用 `<unit>-H<n>`；Evidence id 用 `<unit>-E<n>`。每个 material H 的 `evidenceRefs` 必须非空；`supported` 至少引用一条 `polarity=supports` 的 DIRECT Evidence，`refuted` 至少引用一条 `polarity=refutes` 的 DIRECT Evidence，不能只改 result 标签消除风险。`supported` 只配 `promote-to-finding`，`refuted` 只配 `close`，`unresolved` 配 `promote-to-finding`（决定性缺口未由新的 DIRECT Evidence 解决前只能形成 CONDITIONAL）或 `residual-gap`；`counter-supported` 的原 H 必须关闭，若缩窄后仍 material 则另建新 H。没有 material H 时 hypotheses 为空，仍填写 coverageSummary。测试成为 material Evidence 时在该 E 增加 `testDiscrimination={test,result,basis,issue?}`。
+
+`coverageSummary.verifiedBehaviors` 按 `schemaVersion` 区分形状。v3（新实例默认）要求对象数组 `[{behavior, evidenceRefs[]}]`：`behavior` 非空，`evidenceRefs` 必填非空且只能引用**本工件自己的** evidence——这让 reporting 的"已验证正确行为必须回指 DIRECT Evidence"从文字要求变成机械可核对项。v2（历史归档）保留裸字符串数组，validator 双版本接受、不回溯重验。**过渡期消费指引**：任何读取方（`check`/`receive`/`lint`、报告生成、后续工具）必须先看 `state.json.schemaVersion` 再解释该字段——v2 读 string[]，v3 读对象数组并核对 refs；不得把 v2 的裸字符串当作已有证据回指的结论引用。低于 material 的外溢观察写可选的 `peripheralObservations[]`（字符串数组，主代理接收时集中 triage），不得占用 verifiedBehaviors。
 
 ### 4.2 `verification/F<n>.json`
 

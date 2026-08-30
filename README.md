@@ -47,9 +47,9 @@ Deliverable
 - **穷尽要求可证明**：用户明确要求逐文件/逐行时，非空 scope inventory、完成项、排除项和最终 snapshot 写入 `scopeCoverage`；未闭合成员在没有已确认 blocker 时使相关 Gate 为 INCOMPLETE，已有 blocker 时保持 BLOCKED 并同时披露缺口。
 - **未提交修复有身份**：Git 工作树没有授权 commit 时，用 PRE/POST HEAD 加确定性内容 manifest 形成 `git-worktree` snapshot，不创建越权 commit，也不把未提交内容冒充 Git object。
 
-## 协议 v2 状态
+## 协议状态（schemaVersion 2/3）
 
-`state.json` 是唯一实时权威状态；旧式 `audit.md + coverage.md + ledger.md` 多源模型已取消。
+`state.json` 是唯一实时权威状态；旧式 `audit.md + coverage.md + ledger.md` 多源模型已取消。新实例写 `schemaVersion: 3`；validator 双版本接受——v2 仅作为历史归档保持合法，不回溯重验。两版唯一形态差异是 `coverageSummary.verifiedBehaviors`：v3 为 `[{behavior, evidenceRefs[]}]`（refs 必填、仅限本工件 evidence，"已验证正确行为"由此机械回指 DIRECT Evidence），v2 为裸字符串数组；消费方必须先看 schemaVersion 再解释该字段，过渡期消费指引见 `references/audit-ledger.md` §4.1。
 
 ```text
 <stateRoot>/<auditId>/state.json
@@ -92,10 +92,10 @@ python -B -m unittest discover -s scripts          # 全量回归：validator + 
 - high/highest Claim-level Sufficiency、highest 异质方法和显式 independent 要求；
 - **Gate 是否强于当前状态允许的结果**（validator 会按状态重算并与声明比对）；
 - Gate、Provenance、探索与 exhaustive scope coverage，以及 audit-and-fix 批次 DAG、依赖、generation、验收 Evidence 和 FINAL 状态；
-- 触发式字段 `dispatches[]` / `priorContact` 的 allowlist、非空与去重，以及 coverageSummary 的 `peripheralObservations`；
+- 触发式字段 `dispatches[]` / `priorContact` 的 allowlist、非空与去重，以及 coverageSummary 的 `peripheralObservations` 与按 schemaVersion 区分的 `verifiedBehaviors` 形状（v2 字符串数组 / v3 引用对象）；
 - `--state-root` 下的闭合活动/归档布局、缺失 state 的半成品目录、误入 archive 的 ACTIVE 实例、重复 audit id、双向 supersession 链、多后继和环。
 
-仓库自带 148 个回归测试覆盖上述每一项（validator 106 个 + 状态辅助脚本 42 个，`discover -s scripts` 会一次跑完）。改动任一脚本后应全量跑一遍——只跑单个测试文件会漏掉另一个脚本的回归。
+仓库自带 152 个回归测试覆盖上述每一项（validator 110 个 + 状态辅助脚本 42 个，`discover -s scripts` 会一次跑完）。改动任一脚本后应全量跑一遍——只跑单个测试文件会漏掉另一个脚本的回归。
 
 关键报错消息末尾附有所违反规则的文档指针（如 `[see audit-ledger.md「Verification units」]`），带章节标题、不带 § 号，避免"靠失败发现不变量"。
 
@@ -166,7 +166,7 @@ python -B scripts/audit_state.py verify <dir>                 # 转调 validator
 | 文件 | 何时读取 | 档位 |
 |---|---|---|
 | `SKILL.md` | 每次使用：任务契约、权限、调度、主流程和收口 | 必读 |
-| `references/audit-ledger.md` | 初始化、恢复、更新 v2 状态（标准档可跳过 §3.7） | 标准 |
+| `references/audit-ledger.md` | 初始化、恢复、更新状态（标准档可跳过 §3.7） | 标准 |
 | `references/review-dimensions.md` | 建立风险地图、选择验证方法 | 标准 |
 | `references/assessment-model.md` | material H 提升、Finding/Decision 定稿 | 标准 |
 | `references/auditor-persona.md` | 实际派发子代理 | 标准 |
@@ -179,7 +179,7 @@ python -B scripts/audit_state.py verify <dir>                 # 转调 validator
 | `scripts/validate_audit_state.py` | 可选校验器，Python 3.9+ | 可选 |
 | `scripts/audit_state.py` | 可选机械辅助：init / check / receive / bind / lint / verify | 可选 |
 
-当前仓库只维护中文协议 v2，不再附带独立英文变体。
+当前仓库只维护中文协议（schemaVersion 2/3），不再附带独立英文变体。
 
 ## 设计取舍
 

@@ -1,10 +1,14 @@
 #!/usr/bin/env python3
-"""Validate cross-validated-project-audit protocol-v2 state.
+"""Validate cross-validated-project-audit protocol state.
 
 The validator intentionally uses only the Python standard library.  It checks
 the live state graph and the investigation/verification JSON artifacts that the
 state references.  It does not decide whether an audit conclusion is factually
 correct; it prevents internally impossible states and over-strong Gate results.
+
+Schema versions 2 and 3 are both accepted: v2 archives stay valid historical
+artifacts, while new instances use v3 (referenced verifiedBehaviors).  The
+outcome-shape checks apply only to v3.
 """
 
 from __future__ import annotations
@@ -18,7 +22,7 @@ from pathlib import Path
 from typing import Any, Iterable
 
 
-SCHEMA_VERSION = 2
+SCHEMA_VERSIONS = {2, 3}
 PHASES = {"ACTIVE", "FINAL", "SUPERSEDED"}
 SCOPE_MODES = {"project", "change", "pr", "author-commits"}
 OBJECTIVE_PROFILES = {"general", "security", "fix-verification"}
@@ -117,6 +121,7 @@ class Validation:
         self.test_discrimination_results: dict[str, str] = {}
         self.audit_id: str | None = None
         self.snapshot: dict[str, Any] | None = None
+        self.schema_version: int | None = None
 
     def error(self, path: str, message: str) -> None:
         self.errors.append(f"{path}: {message}")
@@ -549,7 +554,7 @@ def validate_investigation(v: Validation, path: Path, unit: dict[str, Any], inde
             v.unit_hypotheses[unit["id"]] = local_hypotheses
     if isinstance(summary, dict):
         v.closed_object(summary, f"{label}.coverageSummary", {"checked", "verifiedBehaviors", "gaps", "peripheralObservations"})
-        for key in ("checked", "verifiedBehaviors", "gaps"):
+        for key in ("checked", "gaps"):
             if key not in summary or not isinstance(summary[key], list):
                 v.error(f"{label}.coverageSummary.{key}", "expected array")
             else:
@@ -560,6 +565,31 @@ def validate_investigation(v: Validation, path: Path, unit: dict[str, Any], inde
                 v.error(f"{label}.coverageSummary.peripheralObservations", "expected array")
             else:
                 string_items(v, peripheral, f"{label}.coverageSummary.peripheralObservations")
+        # verifiedBehaviors shape is schema-version dependent: v2 keeps the bare
+        # string array (historical archives stay valid), v3 requires referenced
+        # outcome objects so "verified safe" is mechanically checkable.
+        verified = summary.get("verifiedBehaviors")
+        if not isinstance(verified, list):
+            v.error(f"{label}.coverageSummary.verifiedBehaviors", "expected array")
+        elif v.schema_version == 3:
+            for b_index, entry in enumerate(verified):
+                b_path = f"{label}.coverageSummary.verifiedBehaviors[{b_index}]"
+                if not isinstance(entry, dict):
+                    v.error(b_path, "schemaVersion 3 requires {behavior, evidenceRefs} objects; bare strings are v2-only")
+                    continue
+                v.closed_object(entry, b_path, {"behavior", "evidenceRefs"})
+                behavior = v.require(entry, "behavior", b_path, str)
+                if isinstance(behavior, str):
+                    v.nonempty(behavior, f"{b_path}.behavior")
+                refs = v.require(entry, "evidenceRefs", b_path, list)
+                valid_refs = string_items(v, refs, f"{b_path}.evidenceRefs")
+                if isinstance(refs, list) and not valid_refs:
+                    v.error(f"{b_path}.evidenceRefs", "must reference DIRECT evidence from this artifact")
+                for b_ref in valid_refs:
+                    if b_ref not in local_evidence:
+                        v.error(f"{b_path}.evidenceRefs", f"unknown evidence id {b_ref!r} in this artifact")
+        else:
+            string_items(v, verified, f"{label}.coverageSummary.verifiedBehaviors")
 
 
 def validate_verification(v: Validation, path: Path, finding_id: str) -> None:
@@ -1061,8 +1091,10 @@ def validate_state(state_path: Path) -> Validation:
         {"schemaVersion", "phase", "audit", "sharedFacts", "claims", "verificationUnits", "findings", "residualRisks", "fixWorkflow", "exploration", "dispatches"},
     )
 
-    if data.get("schemaVersion") != SCHEMA_VERSION:
-        v.error("state.json.schemaVersion", f"must equal {SCHEMA_VERSION}")
+    if data.get("schemaVersion") not in SCHEMA_VERSIONS:
+        v.error("state.json.schemaVersion", f"must be one of {sorted(SCHEMA_VERSIONS)}")
+    elif isinstance(data.get("schemaVersion"), int):
+        v.schema_version = data["schemaVersion"]
     phase = v.require(data, "phase", "state.json", str)
     if isinstance(phase, str):
         v.enum(phase, PHASES, "state.json.phase")

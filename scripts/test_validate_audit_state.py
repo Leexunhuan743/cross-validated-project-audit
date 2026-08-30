@@ -1926,6 +1926,67 @@ class SemanticInvariantTests(unittest.TestCase):
         errors = self.mutated_errors("valid-release-gate", bad_disposition)
         self.assert_error_contains(errors, "audit-ledger.md「Finding」")
 
+    # schema v3 referenced verifiedBehaviors ---------------------------------
+
+    def test_schema_version_accepts_two_and_three_only(self) -> None:
+        def v2_remains_valid(state: dict) -> None:
+            state["schemaVersion"] = 2
+
+        self.assertEqual([], self.mutated_errors("valid-blocked-with-incomplete-scope", v2_remains_valid))
+
+        def unknown_version(state: dict) -> None:
+            state["schemaVersion"] = 4
+
+        errors = self.mutated_errors("valid-release-gate", unknown_version)
+        self.assert_error_contains(errors, "must be one of [2, 3]")
+
+    def test_v3_verified_behaviors_reject_bare_strings(self) -> None:
+        def bare_string(target: Path) -> None:
+            path = target / "investigations" / "R1-a.json"
+            data = json.loads(path.read_text(encoding="utf-8"))
+            data["coverageSummary"]["verifiedBehaviors"] = ["malformed tokens are rejected"]
+            path.write_text(json.dumps(data, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+
+        errors = self.mutated_errors("valid-release-gate", mutate_files=bare_string)
+        self.assert_error_contains(errors, "schemaVersion 3 requires {behavior, evidenceRefs} objects")
+
+    def test_v3_verified_behavior_requires_nonempty_local_evidence_refs(self) -> None:
+        def missing_refs(target: Path) -> None:
+            path = target / "investigations" / "R1-a.json"
+            data = json.loads(path.read_text(encoding="utf-8"))
+            del data["coverageSummary"]["verifiedBehaviors"][0]["evidenceRefs"]
+            path.write_text(json.dumps(data, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+
+        errors = self.mutated_errors("valid-release-gate", mutate_files=missing_refs)
+        self.assert_error_contains(errors, "missing required key 'evidenceRefs'")
+
+        def empty_refs(target: Path) -> None:
+            path = target / "investigations" / "R1-a.json"
+            data = json.loads(path.read_text(encoding="utf-8"))
+            data["coverageSummary"]["verifiedBehaviors"][0]["evidenceRefs"] = []
+            path.write_text(json.dumps(data, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+
+        errors = self.mutated_errors("valid-release-gate", mutate_files=empty_refs)
+        self.assert_error_contains(errors, "must reference DIRECT evidence from this artifact")
+
+        def foreign_ref(target: Path) -> None:
+            path = target / "investigations" / "R1-a.json"
+            data = json.loads(path.read_text(encoding="utf-8"))
+            data["coverageSummary"]["verifiedBehaviors"][0]["evidenceRefs"] = ["R2-E1"]
+            path.write_text(json.dumps(data, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+
+        errors = self.mutated_errors("valid-release-gate", mutate_files=foreign_ref)
+        self.assert_error_contains(errors, "unknown evidence id 'R2-E1' in this artifact")
+
+    def test_v2_verified_behaviors_stay_string_arrays(self) -> None:
+        def string_form(target: Path) -> None:
+            path = target / "investigations" / "R1-a.json"
+            data = json.loads(path.read_text(encoding="utf-8"))
+            data["coverageSummary"]["verifiedBehaviors"] = ["upload path checked"]
+            path.write_text(json.dumps(data, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+
+        self.assertEqual([], self.mutated_errors("valid-blocked-with-incomplete-scope", mutate_files=string_form))
+
     # reporting hygiene -----------------------------------------------------
 
     def test_uncleaned_probes_are_reported_once(self) -> None:

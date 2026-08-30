@@ -36,7 +36,9 @@
   ],
   "coverageSummary": {
     "checked": ["pre-fix and fixed behavior"],
-    "verifiedBehaviors": ["the regression distinguishes both snapshots"],
+    "verifiedBehaviors": [
+      {"behavior": "the regression distinguishes both snapshots", "evidenceRefs": ["R1-E1"]}
+    ],
     "gaps": []
   }
 }

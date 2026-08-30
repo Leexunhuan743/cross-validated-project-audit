@@ -16,7 +16,9 @@
   ],
   "coverageSummary": {
     "checked": ["parser entry and direct callers"],
-    "verifiedBehaviors": ["valid inputs reach the success path"],
+    "verifiedBehaviors": [
+      {"behavior": "valid inputs reach the success path", "evidenceRefs": ["R1-E1"]}
+    ],
     "gaps": []
   }
 }
