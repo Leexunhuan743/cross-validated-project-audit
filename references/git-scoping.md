@@ -4,7 +4,7 @@
 
 本文件只是**命令字典**。范围来源优先级、历史成立与当前状态的区分、Provenance 判定、supersession 规则都在 [../SKILL.md](../SKILL.md) 里（分别见 §3 步骤 1、§3 步骤 3、§6、§5），本文件不重复。
 
-贯穿全文的一条：分别报告**历史拓扑**、**审查补丁**和**最终树状态**，不用其中一个替代另外两个。三者能对不上，且对不上的地方常常正是缺陷所在。
+贯穿全文的一条：分别报告**历史拓扑**、**审查补丁**和**最终树状态**，不用其中一个替代另外两个。三者可能出现不一致，且对不上的地方常常正是缺陷所在。
 
 ## 派发前预检
 
@@ -24,7 +24,7 @@ git for-each-ref --format='%(refname:short)' refs/remotes/
 
 ## 模糊范围：先枚举候选，不要静默取数字
 
-对"最近的提交""最近改的代码""近期 PR""这个作者最近的提交"，先枚举最少数量的**自然候选范围**，不要静默解释成"最近 5 个"或"7 天内"。
+对“最近的提交”、“最近改的代码”、“近期 PR”、“这个作者最近的提交”，先枚举最少数量的**自然候选范围**，不要静默解释成"最近 5 个"或"7 天内"。
 
 ```bash
 git log --format='%H%x09%ad%x09%s' --date=short <candidate-range>
@@ -44,7 +44,7 @@ git diff --find-renames=50% <base>...<head>
 ```
 
 - **三点 diff（`base...head`）** 从 merge-base 起算，通常表示 PR 希望引入的补丁。
-- **两点 diff（`base head`）** 比较当前两棵树，表示最终状态差异。
+- **两点 diff（`base..head` 或 `base head`）** 比较当前两棵树，表示最终状态差异。
 - base 已前进时两者会分叉：审查变更以平台 PR patch 或三点 diff 为主，评估集成状态时才看两点 diff。
 - `--find-renames=50%` 是把默认相似度阈值写明。大规模重写会让 rename 检测失真，此时同时看 `--no-renames`，别让启发式把新增/删除藏起来。
 - 平台 PR diff 通常不含未提交工作区内容，别把本地脏状态算进 PR。
@@ -114,7 +114,7 @@ git worktree list --porcelain
 
 需要用 `snapshot.kind=git-worktree` 固定未提交的 PRE/POST 状态时，两个时点必须用**同一 scope 与排除规则**生成确定性 manifest：按规范化相对路径排序，逐项记录 tracked/staged/unstaged/untracked/deleted 类型、文件模式或链接类型、内容 SHA-256，并记录排除项及原因；manifest 自身以 UTF-8 LF 序列化后再算 SHA-256。
 
-不跟随 symlink/junction 读取 scope 外内容，不读 `.env`、`credentials` 或项目明确排除的生成目录，也**不得用 `git add`、临时 commit 或写 object database 来换取一个身份**。PRE/POST HEAD 记在 snapshot 的 `base`/`head`——即使两者相同，`initialSha256`/`finalSha256` 仍能证明未提交内容确实发生了转换。manifest 生成后再次检查 scope 文件状态，发生外部漂移就重新固定或接替审计，不沿用旧 hash。
+不跟随 symlink/junction 读取 scope 外内容，不读 `.env`、`credentials` 或项目明确排除的生成目录，也**不得用 `git add`、临时 commit 或写 object database 来换取一个身份**。PRE/POST HEAD 记在 snapshot 的 `base`/`head`（即使两者相同，`initialSha256`/`finalSha256` 仍能证明未提交内容确实发生了转换）。manifest 生成后再次检查 scope 文件状态，发生外部漂移就重新固定或接替审计，不沿用旧 hash。
 
 ## 子模块、LFS、生成文件与交付卫生
 

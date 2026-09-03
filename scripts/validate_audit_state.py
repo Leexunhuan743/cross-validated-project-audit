@@ -113,6 +113,7 @@ DRIVER_ENUMS: dict[str, set] = {
     "audit.scopeResolution.confidence": {"HIGH", "MEDIUM", "LOW"},
     "audit.snapshot.kind": {"git", "git-worktree", "archive", "deployment", "other"},
     "audit.gates.targets[]": {"CHANGE", "RELEASE", "SYSTEM"},
+    "audit.gates.policies[].blockAtOrAbove": {"High", "Medium", "Low"},
     "claims[].obligation": {"REQUIRED", "EXPLORATORY"},
     "claims[].priority": {"highest", "high", "normal"},
     "claims[].sufficiency": {"MET", "NOT-MET"},
@@ -378,7 +379,7 @@ class Audit:
 
 
 # --------------------------------------------------------------------------
-# 0. invariant prerequisites
+# 0. identity & references / 1. invariant prerequisites
 # --------------------------------------------------------------------------
 # This checker does no form-level validation, so a missing field silently skips
 # every invariant that reads it: the guard reading it becomes a live silent
@@ -417,6 +418,9 @@ def check_driver_enums_and_keys(a: Audit, r: Report) -> None:
         guard(path, value, key)
 
     # -- root and contract -------------------------------------------------
+    if a.state.get("schemaVersion") != 3:
+        r.error("state.json.schemaVersion",
+                f"must be 3 (got {a.state.get('schemaVersion')!r}); the protocol accepts only v3 states")
     if "phase" not in a.state:
         r.error("state.json.phase", f"required driver field; without it every closing obligation "
                                     f"is skipped (must be one of {sorted(DRIVER_ENUMS['state.phase'])})")
@@ -440,6 +444,12 @@ def check_driver_enums_and_keys(a: Audit, r: Report) -> None:
     if isinstance(gates, dict):
         for target in rows(gates.get("targets")):
             guard("state.json.audit.gates.targets", target, "audit.gates.targets[]")
+        policies = gates.get("policies")
+        if isinstance(policies, dict):
+            for target, policy in policies.items():
+                if isinstance(policy, dict) and "blockAtOrAbove" in policy:
+                    guard(f"state.json.audit.gates.policies[{target}].blockAtOrAbove",
+                          policy.get("blockAtOrAbove"), "audit.gates.policies[].blockAtOrAbove")
 
     # -- claims ------------------------------------------------------------
     for claim in a.claims:
@@ -672,6 +682,9 @@ def check_invariant_prerequisites(a: Audit, r: Report) -> None:
                             "conclusion-vs-evidence check instead of satisfying it")
 
 
+# --------------------------------------------------------------------------
+# 2. contract fields
+# --------------------------------------------------------------------------
 def check_contract_fields(a: Audit, r: Report) -> None:
     """The contract decides what counts as covered; a loose contract loosens everything downstream."""
     gates = a.audit.get("gates") if isinstance(a.audit.get("gates"), dict) else {}
@@ -752,7 +765,7 @@ def check_contract_fields(a: Audit, r: Report) -> None:
 
 
 # --------------------------------------------------------------------------
-# 1. snapshot binding
+# 3. snapshot binding
 # --------------------------------------------------------------------------
 def check_bindings(a: Audit, r: Report) -> None:
     audit_id = a.audit.get("id")
@@ -801,7 +814,7 @@ def check_bindings(a: Audit, r: Report) -> None:
 
 
 # --------------------------------------------------------------------------
-# 2. evidence graph
+# 4. evidence graph
 # --------------------------------------------------------------------------
 def check_evidence_graph(a: Audit, r: Report) -> None:
     for unit in a.units:
@@ -870,7 +883,7 @@ def check_evidence_graph(a: Audit, r: Report) -> None:
 
 
 # --------------------------------------------------------------------------
-# 3. disconfirmation
+# 5. disconfirmation
 # --------------------------------------------------------------------------
 def check_disconfirmation(a: Audit, r: Report) -> None:
     # Strength-vs-reproducibility is a property of the Evidence, not of any
@@ -1001,7 +1014,7 @@ def check_disconfirmation(a: Audit, r: Report) -> None:
 
 
 # --------------------------------------------------------------------------
-# 4. conclusion vs evidence
+# 6. conclusion vs evidence
 # --------------------------------------------------------------------------
 def check_conclusions(a: Audit, r: Report) -> None:
     if a.phase == "FINAL":
@@ -1204,6 +1217,9 @@ def check_conclusions(a: Audit, r: Report) -> None:
                                     "ACCEPTED-RISK", None)
 
 
+# --------------------------------------------------------------------------
+# 11. risk-acceptance binding
+# --------------------------------------------------------------------------
 def check_authorization(a: Audit, r: Report, value: dict, path: str, treatment: object, target: object) -> None:
     """A risk acceptance is bound to one audit instance, snapshot and Gate."""
     if treatment not in {"ACCEPTED", "ACCEPTED-RISK"}:
@@ -1222,6 +1238,9 @@ def check_authorization(a: Audit, r: Report, value: dict, path: str, treatment: 
         r.error(f"{path}.target", f"must equal Gate target {target!r}")
 
 
+# --------------------------------------------------------------------------
+# 7. finding-gate binding
+# --------------------------------------------------------------------------
 def check_finding_gates(a: Audit, r: Report) -> None:
     """Gate applicability is an evidence claim, not an opinion about a Finding."""
     gates = a.audit.get("gates") if isinstance(a.audit.get("gates"), dict) else {}
@@ -1276,13 +1295,13 @@ def check_finding_gates(a: Audit, r: Report) -> None:
 
 
 # --------------------------------------------------------------------------
-# 5. Gate derivation
+# 8. Gate derivation
 # --------------------------------------------------------------------------
 def derive_gate(a: Audit, target: str) -> tuple:
     gates = a.audit.get("gates") if isinstance(a.audit.get("gates"), dict) else {}
     policies = gates.get("policies") if isinstance(gates.get("policies"), dict) else {}
     threshold = policies.get(target, {}).get("blockAtOrAbove", "High") if isinstance(policies.get(target), dict) else "High"
-    threshold_rank = {"High": 3, "Medium": 2, "Low": 1}.get(threshold, 3)
+    threshold_rank = {"Critical": 4, "High": 3, "Medium": 2, "Low": 1}.get(threshold, 3)
     independent_required = strset(a.audit.get("independentValidationRequiredFor"))
     blocked, incomplete, conditional = [], [], []
     coverage = a.audit.get("scopeCoverage")
@@ -1397,7 +1416,7 @@ def check_gates(a: Audit, r: Report) -> None:
 
 
 # --------------------------------------------------------------------------
-# 6. fix-batch freshness
+# 9. fix-batch freshness
 # --------------------------------------------------------------------------
 def check_fix_workflow(a: Audit, r: Report) -> None:
     workflow = a.state.get("fixWorkflow")
@@ -1532,7 +1551,7 @@ def check_fix_workflow(a: Audit, r: Report) -> None:
 
 
 # --------------------------------------------------------------------------
-# 8. coverage closure
+# 10. coverage & exploration
 # --------------------------------------------------------------------------
 def check_coverage(a: Audit, r: Report) -> None:
     stop = a.audit.get("stop") if isinstance(a.audit.get("stop"), dict) else {}
@@ -1643,7 +1662,7 @@ def check_exploration(a: Audit, r: Report) -> None:
 
 
 # --------------------------------------------------------------------------
-# 7. supersession graph (--state-root)
+# supersession graph (--state-root)
 # --------------------------------------------------------------------------
 def validate_state_root(root: Path) -> Report:
     report = Report(str(root))
