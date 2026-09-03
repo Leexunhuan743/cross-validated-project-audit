@@ -1,0 +1,96 @@
+{
+  "schemaVersion": 3,
+  "phase": "FINAL",
+  "audit": {
+    "id": "no-gate-gap-001",
+    "target": "bounded workspace change",
+    "scope": "src/parser.py",
+    "snapshot": {
+      "kind": "other",
+      "identity": "gap-snapshot-1"
+    },
+    "objectives": [
+      "identify correctness and regression risks"
+    ],
+    "availableEvidence": [
+      "workspace"
+    ],
+    "deliverable": "finding report",
+    "scopeMode": "change",
+    "objectiveProfiles": [
+      "general"
+    ],
+    "executionMode": "audit-only",
+    "scopeResolution": {
+      "basis": "USER",
+      "confidence": "HIGH"
+    },
+    "startedAt": "2026-08-22T00:00:00Z",
+    "updatedAt": "2026-08-22T00:10:00Z"
+  },
+  "sharedFacts": [],
+  "claims": [
+    {
+      "id": "Q1",
+      "obligation": "REQUIRED",
+      "riskArea": "correctness",
+      "statement": "the parser preserves valid inputs",
+      "consequence": "valid input is rejected",
+      "priority": "normal",
+      "scope": "src/parser.py"
+    }
+  ],
+  "verificationUnits": [
+    {
+      "id": "R1",
+      "claimId": "Q1",
+      "method": "implementation-trace",
+      "executor": "main",
+      "status": "verified",
+      "investigationFile": "investigations/R1-main.json",
+      "reconciliations": [
+        {
+          "hypothesisId": "R1-H1",
+          "result": "FINDING",
+          "findingId": "F1",
+          "evidenceRefs": [
+            "R1-E1"
+          ]
+        }
+      ]
+    }
+  ],
+  "findings": [
+    {
+      "id": "F1",
+      "statement": "buffer allocation is unbounded on malformed packet stream",
+      "locations": [
+        "src/parser.py:10"
+      ],
+      "sourceHypotheses": [
+        "R1-H1"
+      ],
+      "supportingEvidence": [
+        "R1-E1"
+      ],
+      "refutingEvidence": [],
+      "disconfirmation": {
+        "counterHypothesis": "buffer size is bounded by caller socket limit",
+        "evidenceSearched": "caller socket configurations",
+        "result": "counter-refuted"
+      },
+      "risk": {
+        "impact": "High",
+        "likelihood": "Medium",
+        "reachability": "Common",
+        "recoverability": "Manual"
+      },
+      "decision": "CONDITIONAL",
+      "severity": "High",
+      "confidence": "High",
+      "verificationMethod": "implementation-trace",
+      "verificationFile": "verification/F1.json"
+    }
+  ],
+  "residualRisks": []
+}

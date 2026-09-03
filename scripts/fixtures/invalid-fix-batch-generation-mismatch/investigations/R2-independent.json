@@ -1,0 +1,61 @@
+{
+  "auditBinding": {
+    "auditId": "fixflow-001",
+    "snapshot": {
+      "kind": "git-worktree",
+      "head": "1f2e3d4c5b6a798807162534435261708f9eadbc",
+      "initialSha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "finalSha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+    }
+  },
+  "unitId": "R2",
+  "claimId": "Q1",
+  "method": "test-discrimination",
+  "hypotheses": [
+    {
+      "id": "R2-H1",
+      "statement": "the POST-fix snapshot still overflows for oversized input",
+      "potentialImpact": "the fix is incomplete",
+      "conditions": "oversized input on the POST-fix snapshot",
+      "counterHypothesis": "the bound check rejects the input before the copy",
+      "expectedSafeBehavior": "the POST-fix entrypoint rejects the oversized length",
+      "evidenceSearched": "discriminating regression across both snapshots",
+      "disconfirmationResult": "counter-supported",
+      "evidenceRefs": [
+        "R2-E1"
+      ],
+      "result": "refuted",
+      "recommendation": "close",
+      "reasoning": "the regression fails on the PRE-fix snapshot and passes on the POST-fix snapshot"
+    }
+  ],
+  "evidence": [
+    {
+      "id": "R2-E1",
+      "polarity": "refutes",
+      "strength": "ES3",
+      "reproducibility": "repeatable",
+      "source": "regression run across PRE-fix and POST-fix snapshots",
+      "observation": "the previous failing input is rejected before the copy on the POST-fix snapshot",
+      "testDiscrimination": {
+        "test": "test_oversized_input_rejected",
+        "result": "YES",
+        "basis": "the test fails on the PRE-fix snapshot and passes on the POST-fix snapshot"
+      }
+    }
+  ],
+  "coverageSummary": {
+    "checked": [
+      "discriminating regression across both snapshots"
+    ],
+    "verifiedBehaviors": [
+      {
+        "behavior": "the regression discriminates PRE-fix failure from POST-fix rejection",
+        "evidenceRefs": [
+          "R2-E1"
+        ]
+      }
+    ],
+    "gaps": []
+  }
+}

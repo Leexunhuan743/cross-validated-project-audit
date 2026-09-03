@@ -1,0 +1,30 @@
+{
+  "auditBinding": {
+    "auditId": "release-001",
+    "snapshot": {
+      "kind": "deployment",
+      "version": "release-candidate-2026-08-22"
+    }
+  },
+  "findingId": "F1",
+  "method": "implementation-trace",
+  "checkedEvidence": [
+    "R1-E1"
+  ],
+  "evidence": [
+    {
+      "id": "F1-E1",
+      "polarity": "supports",
+      "strength": "ES2",
+      "reproducibility": "not-applicable",
+      "source": "src/http.py:44 and middleware.py:12-30",
+      "observation": "neither emission layer attaches the request id"
+    }
+  ],
+  "conclusion": "the diagnostic-context omission is confirmed",
+  "limits": [],
+  "challenge": {
+    "status": "GAP",
+    "gapReason": "no second isolated executor was available in this environment"
+  }
+}

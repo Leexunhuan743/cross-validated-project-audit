@@ -1,0 +1,56 @@
+{
+  "auditBinding": {
+    "auditId": "fixflow-001",
+    "snapshot": {
+      "kind": "git-worktree",
+      "head": "1f2e3d4c5b6a798807162534435261708f9eadbc",
+      "initialSha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "finalSha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+    }
+  },
+  "unitId": "R1",
+  "claimId": "Q1",
+  "method": "implementation-trace",
+  "hypotheses": [
+    {
+      "id": "R1-H1",
+      "statement": "the PRE-fix copy is unbounded for oversized input",
+      "potentialImpact": "memory corruption",
+      "conditions": "oversized input reaching the copy",
+      "counterHypothesis": "the caller bounded the input before the copy",
+      "expectedSafeBehavior": "the caller rejects the oversized length",
+      "evidenceSearched": "every caller and length check on the PRE-fix snapshot",
+      "disconfirmationResult": "counter-refuted",
+      "evidenceRefs": [
+        "R1-E1"
+      ],
+      "result": "supported",
+      "recommendation": "promote-to-finding",
+      "reasoning": "the copy is reached without any bound check on the PRE-fix snapshot"
+    }
+  ],
+  "evidence": [
+    {
+      "id": "R1-E1",
+      "polarity": "supports",
+      "strength": "ES2",
+      "reproducibility": "not-applicable",
+      "source": "src/parser.c:88-92 (PRE-fix)",
+      "observation": "the length is read and passed straight to the fixed-size copy"
+    }
+  ],
+  "coverageSummary": {
+    "checked": [
+      "parser entrypoint and direct callers on the PRE-fix snapshot"
+    ],
+    "verifiedBehaviors": [
+      {
+        "behavior": "callers do not bound the length",
+        "evidenceRefs": [
+          "R1-E1"
+        ]
+      }
+    ],
+    "gaps": []
+  }
+}

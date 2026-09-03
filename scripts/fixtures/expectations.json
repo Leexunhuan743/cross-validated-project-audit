@@ -1,15 +1,114 @@
 {
-  "_note": "本文件只是 `validate_audit_state.py --self-test` 的轻量 fixture 自测清单：记录每个 invalid-* 目录必须出现的预期错误片段，以及可选的精确错误条数。它不表示完整测试覆盖——协议不变量覆盖由 scripts/test_validate_audit_state.py（unittest，含 mutation 测试）提供，状态辅助脚本的覆盖另由 scripts/test_audit_state.py 提供；两边数量以 `python -B -m unittest discover -s scripts` 的实际输出为准，本文件不维护具体数字（此前硬编码的计数已连续多轮漂移）。新增 fixture 时，valid-* 无需在此登记，invalid-* 只需在此列出至少一条预期错误片段。可选地为 invalid-* 配一条 `<目录名>.error_count` 精确钉住错误条数——片段检查只判断子串是否出现，同一条错误被重复输出时它仍会 PASS，只有钉住条数才能抓到这类回归。",
-  "invalid-disposition-combination": [
-    "explicit disposition is allowed only for CONFIRMED findings"
-  ],
-  "invalid-disposition-combination.error_count": 1,
-  "invalid-empty-gate-coverage": [
-    "declared READY, but state derives INCOMPLETE"
-  ],
-  "invalid-empty-gate-coverage.error_count": 3,
-  "invalid-ready-with-insufficient-evidence": [
-    "declared READY, but state derives INCOMPLETE"
-  ],
-  "invalid-ready-with-insufficient-evidence.error_count": 1
+ "_note": "本文件是 `validate_audit_state.py --self-test` 的轻量 fixture 自测清单：记录每个 invalid-* 目录必须出现的预期错误片段（message 子串）与精确错误条数（error_count）。valid-* 无需登记。本 skill 的 validator 只校验不变量（身份与引用、前提字段、契约字段、快照绑定、证据图、反证、结论强度、Finding-Gate 绑定、Gate 推导、批次新鲜度、覆盖闭合、探索轮次、授权绑定），不做字段级表单校验——id 格式、路径词法、目录布局、未建模键一类仍以 valid-* fixture 为准。三处例外属于不变量检查而非表单检查，因为它们失效的后果是「检查被静默跳过」而不是「字段不好看」：(1)「身份与引用」——重复 id 会静默覆盖、悬空引用会静默解析为空，两者都让不变量退化成空操作；(2)「不变量前提字段」——驱动不变量判定的字段若缺失，本该静默跳过检查，pass 0 将其改为报错；(3)「驱动枚举」——驱动值是与字面量比较的开关（`phase == \"FINAL\"`、`severity in {\"Critical\",\"High\"}`、`disconfirmationResult == \"counter-supported\"`），差一个字符不会得到错误结论，而是根本得不到结论：判据落空，受它保护的不变量对该对象静默停跑。差一个字符因此比一个明显错误的值更危险——后者至少还有别的检查会报出来。error_count 为精确匹配：它防止新增检查时把已有 case 的报错面悄悄放大（例如给一个本应只报一条的 case 追加无关错误）。",
+ "invalid-agent-set-risk-tolerance": [
+  "free-form riskTolerance is unsupported"
+ ],
+ "invalid-agent-set-risk-tolerance.error_count": 1,
+ "invalid-binding-missing-snapshot-key": [
+  "must declare an explicit snapshot key"
+ ],
+ "invalid-binding-missing-snapshot-key.error_count": 1,
+ "invalid-confirmed-without-disconfirmation": [
+  "requires a recorded disconfirmation attempt"
+ ],
+ "invalid-confirmed-without-disconfirmation.error_count": 1,
+ "invalid-disconfirmation-result-typo": [
+  "invalid value 'counter-supporte'"
+ ],
+ "invalid-disconfirmation-result-typo.error_count": 1,
+ "invalid-disposition-combination": [
+  "explicit disposition is allowed only for CONFIRMED findings"
+ ],
+ "invalid-disposition-combination.error_count": 1,
+ "invalid-driver-enum-whitespace": [
+  "has surrounding whitespace"
+ ],
+ "invalid-driver-enum-whitespace.error_count": 1,
+ "invalid-duplicate-unit-id": [
+  "duplicate id 'R2'"
+ ],
+ "invalid-duplicate-unit-id.error_count": 1,
+ "invalid-empty-gate-coverage": [
+  "declared READY, but state derives INCOMPLETE"
+ ],
+ "invalid-empty-gate-coverage.error_count": 4,
+ "invalid-evidence-strength-unrepeatable": [
+  "a single observation cannot carry that strength"
+ ],
+ "invalid-evidence-strength-unrepeatable.error_count": 1,
+ "invalid-exploration-beyond-warrant": [
+  "must be between 0 and 2"
+ ],
+ "invalid-exploration-beyond-warrant.error_count": 1,
+ "invalid-exploratory-without-rounds": [
+  "required when EXPLORATORY claims exist"
+ ],
+ "invalid-exploratory-without-rounds.error_count": 2,
+ "invalid-final-gap-without-gate": [
+  "cannot close with a High challenge GAP"
+ ],
+ "invalid-final-gap-without-gate.error_count": 1,
+ "invalid-final-without-required-claim": [
+  "requires at least one REQUIRED Claim"
+ ],
+ "invalid-final-without-required-claim.error_count": 1,
+ "invalid-finding-driver-key-typo": [
+  "misspelled key; did you mean 'decision'?"
+ ],
+ "invalid-finding-driver-key-typo.error_count": 2,
+ "invalid-fix-batch-generation-mismatch": [
+  "PASSED batch must equal fixWorkflow.generation"
+ ],
+ "invalid-fix-batch-generation-mismatch.error_count": 1,
+ "invalid-fix-workflow-without-audit-and-fix": [
+  "allowed only when executionMode=audit-and-fix"
+ ],
+ "invalid-fix-workflow-without-audit-and-fix.error_count": 1,
+ "invalid-gap-challenge-carries-completed-fields": [
+  "must be omitted when status is GAP",
+  "must record why the challenge could not be completed"
+ ],
+ "invalid-gap-challenge-carries-completed-fields.error_count": 6,
+ "invalid-gate-applies-without-evidence": [
+  "APPLIES requires supporting or contextual current-applicability Evidence"
+ ],
+ "invalid-gate-applies-without-evidence.error_count": 1,
+ "invalid-highest-claim-without-discrimination": [
+  "required for priority=highest"
+ ],
+ "invalid-highest-claim-without-discrimination.error_count": 4,
+ "invalid-lowercase-phase": [
+  "invalid value 'final'"
+ ],
+ "invalid-lowercase-phase.error_count": 1,
+ "invalid-obligation-case": [
+  "invalid value 'required'",
+  "requires at least one REQUIRED Claim"
+ ],
+ "invalid-obligation-case.error_count": 2,
+ "invalid-rated-finding-without-risk": [
+  "required to judge a CONFIRMED Finding",
+  "cannot be skipped by omitting risk"
+ ],
+ "invalid-rated-finding-without-risk.error_count": 2,
+ "invalid-ready-with-insufficient-evidence": [
+  "declared READY, but state derives INCOMPLETE"
+ ],
+ "invalid-ready-with-insufficient-evidence.error_count": 1,
+ "invalid-severity-deviation-without-rationale": [
+  "deviates from impact Medium and requires a rationale"
+ ],
+ "invalid-severity-deviation-without-rationale.error_count": 2,
+ "invalid-test-discrimination-without-yes": [
+  "requires at least one Evidence with testDiscrimination.result=YES"
+ ],
+ "invalid-test-discrimination-without-yes.error_count": 1,
+ "invalid-verified-behavior-bare-string": [
+  "must be a {behavior, evidenceRefs} object"
+ ],
+ "invalid-verified-behavior-bare-string.error_count": 1,
+ "invalid-verified-unit-without-evidence": [
+  "a verified Unit requires at least one DIRECT Evidence"
+ ],
+ "invalid-verified-unit-without-evidence.error_count": 1
 }

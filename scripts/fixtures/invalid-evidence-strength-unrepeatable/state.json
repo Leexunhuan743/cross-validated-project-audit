@@ -1,0 +1,57 @@
+{
+  "schemaVersion": 3,
+  "phase": "FINAL",
+  "audit": {
+    "id": "ordinary-001",
+    "target": "bounded workspace change",
+    "scope": "src/parser.py and direct callers",
+    "snapshot": {
+      "kind": "other",
+      "identity": "bounded-workspace-change-2026-08-22"
+    },
+    "objectives": [
+      "identify correctness and regression risks"
+    ],
+    "availableEvidence": [
+      "workspace",
+      "tests"
+    ],
+    "deliverable": "finding report",
+    "scopeMode": "change",
+    "objectiveProfiles": [
+      "general"
+    ],
+    "executionMode": "audit-only",
+    "scopeResolution": {
+      "basis": "USER",
+      "confidence": "HIGH"
+    },
+    "startedAt": "2026-08-22T00:00:00Z",
+    "updatedAt": "2026-08-22T00:10:00Z"
+  },
+  "sharedFacts": [],
+  "claims": [
+    {
+      "id": "Q1",
+      "obligation": "REQUIRED",
+      "riskArea": "correctness",
+      "statement": "the parser preserves valid inputs",
+      "consequence": "valid input is rejected",
+      "priority": "normal",
+      "scope": "src/parser.py"
+    }
+  ],
+  "verificationUnits": [
+    {
+      "id": "R1",
+      "claimId": "Q1",
+      "method": "implementation-trace",
+      "executor": "main",
+      "status": "verified",
+      "investigationFile": "investigations/R1-main.json",
+      "reconciliations": []
+    }
+  ],
+  "findings": [],
+  "residualRisks": []
+}

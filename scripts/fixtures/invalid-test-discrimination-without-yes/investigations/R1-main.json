@@ -1,0 +1,59 @@
+{
+  "auditBinding": {
+    "auditId": "fix-001",
+    "snapshot": {
+      "kind": "other",
+      "identity": "fixed-parser-snapshot-2026-08-22"
+    }
+  },
+  "unitId": "R1",
+  "claimId": "Q1",
+  "method": "test-discrimination",
+  "hypotheses": [
+    {
+      "id": "R1-H1",
+      "statement": "the pre-fix snapshot allowed an oversized copy",
+      "potentialImpact": "memory corruption",
+      "conditions": "oversized input",
+      "counterHypothesis": "the caller bounded the input",
+      "expectedSafeBehavior": "the pre-fix caller rejects the oversized length",
+      "evidenceSearched": "pre-fix caller and copy path",
+      "disconfirmationResult": "counter-refuted",
+      "evidenceRefs": [
+        "R1-E1"
+      ],
+      "result": "supported",
+      "recommendation": "promote-to-finding",
+      "reasoning": "the old path reaches the copy without a bound check"
+    }
+  ],
+  "evidence": [
+    {
+      "id": "R1-E1",
+      "polarity": "supports",
+      "strength": "ES3",
+      "reproducibility": "repeatable",
+      "source": "pre-fix regression run",
+      "observation": "the previous snapshot accepts the oversized copy input",
+      "testDiscrimination": {
+        "test": "test_oversized_input",
+        "result": "NO",
+        "basis": "the test passes on both the PRE-fix and POST-fix snapshots, so it cannot distinguish them"
+      }
+    }
+  ],
+  "coverageSummary": {
+    "checked": [
+      "pre-fix and fixed behavior"
+    ],
+    "verifiedBehaviors": [
+      {
+        "behavior": "the regression distinguishes both snapshots",
+        "evidenceRefs": [
+          "R1-E1"
+        ]
+      }
+    ],
+    "gaps": []
+  }
+}

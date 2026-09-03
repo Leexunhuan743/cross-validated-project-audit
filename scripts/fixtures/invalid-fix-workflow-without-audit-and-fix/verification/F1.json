@@ -1,0 +1,62 @@
+{
+  "auditBinding": {
+    "auditId": "fixflow-001",
+    "snapshot": {
+      "kind": "git-worktree",
+      "head": "1f2e3d4c5b6a798807162534435261708f9eadbc",
+      "initialSha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "finalSha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+    }
+  },
+  "findingId": "F1",
+  "method": "implementation-trace",
+  "checkedEvidence": [
+    "R1-E1"
+  ],
+  "evidence": [
+    {
+      "id": "F1-E1",
+      "polarity": "supports",
+      "strength": "ES2",
+      "reproducibility": "not-applicable",
+      "source": "src/parser.c:88-92 (PRE-fix)",
+      "observation": "no bound check exists between the length read and the fixed-size copy"
+    },
+    {
+      "id": "F1-E2",
+      "polarity": "supports",
+      "strength": "ES2",
+      "reproducibility": "not-applicable",
+      "source": "src/parser.c:12-30 and all direct callers (PRE-fix)",
+      "observation": "no caller bounds the length before reaching the copy"
+    },
+    {
+      "id": "F1-E3",
+      "polarity": "refutes",
+      "strength": "ES2",
+      "reproducibility": "repeatable",
+      "source": "src/parser.c:86-94 (POST-fix)",
+      "observation": "the POST-fix snapshot bounds the length before the copy, so the PRE-fix overflow no longer occurs"
+    }
+  ],
+  "challenge": {
+    "status": "COMPLETED",
+    "mode": "EQUIVALENT-DIRECT-DISCONFIRMATION",
+    "method": "implementation-trace",
+    "evidenceRefs": [
+      "F1-E2"
+    ],
+    "result": "counter-refuted"
+  },
+  "resolutionChallenge": {
+    "status": "COMPLETED",
+    "unitId": "R2",
+    "method": "test-discrimination",
+    "evidenceRefs": [
+      "R2-E1"
+    ],
+    "result": "resolution-supported"
+  },
+  "conclusion": "the unbounded copy is confirmed on the PRE-fix snapshot and is gone on the POST-fix snapshot",
+  "limits": []
+}

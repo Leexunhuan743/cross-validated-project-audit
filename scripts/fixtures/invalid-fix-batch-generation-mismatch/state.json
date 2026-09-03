@@ -1,0 +1,223 @@
+{
+  "schemaVersion": 3,
+  "phase": "FINAL",
+  "audit": {
+    "id": "fixflow-001",
+    "target": "bounded PRE-fix -> POST-fix parser conversion",
+    "scope": "src/parser.c overflow finding F1 and its direct callers",
+    "snapshot": {
+      "kind": "git-worktree",
+      "head": "1f2e3d4c5b6a798807162534435261708f9eadbc",
+      "initialSha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "finalSha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+    },
+    "objectives": [
+      "confirm the parser overflow",
+      "apply a bounded local fix",
+      "verify the risk is gone on the POST-fix snapshot"
+    ],
+    "availableEvidence": [
+      "source",
+      "regression test"
+    ],
+    "deliverable": "audit-and-fix report",
+    "scopeMode": "change",
+    "objectiveProfiles": [
+      "general",
+      "fix-verification"
+    ],
+    "executionMode": "audit-and-fix",
+    "scopeResolution": {
+      "basis": "USER",
+      "confidence": "HIGH"
+    },
+    "startedAt": "2026-08-22T00:00:00Z",
+    "updatedAt": "2026-08-22T00:40:00Z"
+  },
+  "sharedFacts": [],
+  "claims": [
+    {
+      "id": "Q1",
+      "obligation": "REQUIRED",
+      "riskArea": "memory-safety",
+      "statement": "oversized input cannot overflow the parser buffer on the POST-fix snapshot",
+      "consequence": "process memory can be corrupted",
+      "priority": "highest",
+      "scope": "parser public entrypoint and its direct callers",
+      "discrimination": {
+        "safePrediction": "every entrypoint bounds the length before the copy",
+        "failurePrediction": "at least one entrypoint reaches the copy without a bound check",
+        "discriminatingObservation": "the previous failing input is rejected before the copy",
+        "sufficiencyCriterion": "source trace and a discriminating regression both reject the previous failing input"
+      },
+      "sufficiency": "MET"
+    }
+  ],
+  "verificationUnits": [
+    {
+      "id": "R1",
+      "claimId": "Q1",
+      "method": "implementation-trace",
+      "executor": "main",
+      "status": "verified",
+      "investigationFile": "investigations/R1-main.json",
+      "reconciliations": [
+        {
+          "hypothesisId": "R1-H1",
+          "result": "FINDING",
+          "findingId": "F1",
+          "evidenceRefs": [
+            "R1-E1"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "R2",
+      "claimId": "Q1",
+      "method": "test-discrimination",
+      "executor": "independent-reviewer",
+      "status": "verified",
+      "isolation": "ISOLATED",
+      "investigationFile": "investigations/R2-independent.json",
+      "reconciliations": [
+        {
+          "hypothesisId": "R2-H1",
+          "result": "REFUTED",
+          "evidenceRefs": [
+            "R2-E1"
+          ]
+        }
+      ]
+    }
+  ],
+  "findings": [
+    {
+      "id": "F1",
+      "statement": "the PRE-fix parser copy is unbounded for oversized input",
+      "locations": [
+        "src/parser.c:90"
+      ],
+      "causeImpact": "unchecked length allowed a buffer overflow",
+      "conditions": "oversized input reaching the copy on the PRE-fix snapshot",
+      "sourceHypotheses": [
+        "R1-H1"
+      ],
+      "supportingEvidence": [
+        "R1-E1",
+        "F1-E1",
+        "F1-E2"
+      ],
+      "refutingEvidence": [],
+      "disconfirmation": {
+        "counterHypothesis": "the caller bounded the length before the copy",
+        "evidenceSearched": "every caller and every length check on the PRE-fix snapshot",
+        "result": "counter-refuted"
+      },
+      "risk": {
+        "impact": "High",
+        "likelihood": "Low",
+        "reachability": "Conditional",
+        "recoverability": "Manual"
+      },
+      "decision": "CONFIRMED",
+      "severity": "High",
+      "confidence": "High",
+      "verificationMethod": "implementation-trace",
+      "patternScope": "ISOLATED",
+      "disposition": "RESOLVED-VERIFIED",
+      "resolutionEvidence": [
+        "R2-E1",
+        "F1-E3"
+      ],
+      "verificationFile": "verification/F1.json",
+      "exitCriteria": "the bound check lands and a discriminating regression rejects the previous failing input"
+    }
+  ],
+  "fixWorkflow": {
+    "generation": 1,
+    "finalRegressionBatchId": "B3",
+    "findingMappings": [
+      {
+        "findingId": "F1",
+        "rootCausePattern": "unchecked length before a fixed-size copy",
+        "fixScope": "add a bound check at the single entrypoint in src/parser.c",
+        "behaviorChange": "oversized input is rejected before the copy instead of overflowing",
+        "preFixExpectedFailure": "R1-E1 reproduces the overflow on the PRE-fix snapshot",
+        "regressionScope": "parser entrypoint and its direct callers",
+        "knownInstances": [
+          "src/parser.c:90"
+        ],
+        "exclusions": [],
+        "acceptanceChecks": [
+          "the previous failing input is rejected before the copy"
+        ],
+        "residualRiskIds": []
+      }
+    ],
+    "batches": [
+      {
+        "id": "B1",
+        "kind": "FIX",
+        "status": "PASSED",
+        "attempt": 1,
+        "scope": "add the bound check in src/parser.c",
+        "allowedPaths": [
+          "src/parser.c"
+        ],
+        "acceptanceChecks": [
+          "the bound check precedes the copy"
+        ],
+        "dependsOn": [],
+        "findingIds": [
+          "F1"
+        ],
+        "evidenceRefs": [
+          "F1-E1"
+        ],
+        "validatedGeneration": 1
+      },
+      {
+        "id": "B2",
+        "kind": "VERIFY",
+        "status": "PASSED",
+        "attempt": 1,
+        "scope": "discriminating regression for F1",
+        "allowedPaths": [],
+        "acceptanceChecks": [
+          "the regression distinguishes PRE-fix failure from POST-fix rejection"
+        ],
+        "dependsOn": [
+          "B1"
+        ],
+        "findingIds": [
+          "F1"
+        ],
+        "evidenceRefs": [
+          "R2-E1"
+        ],
+        "validatedGeneration": 2
+      },
+      {
+        "id": "B3",
+        "kind": "REGRESSION",
+        "status": "PASSED",
+        "attempt": 1,
+        "scope": "full parser suite",
+        "allowedPaths": [],
+        "acceptanceChecks": [
+          "no regression in the parser suite"
+        ],
+        "dependsOn": [
+          "B2"
+        ],
+        "findingIds": [],
+        "evidenceRefs": [
+          "R2-E1"
+        ],
+        "validatedGeneration": 1
+      }
+    ]
+  },
+  "residualRisks": []
+}

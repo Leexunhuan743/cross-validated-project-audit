@@ -1,0 +1,39 @@
+{
+  "auditBinding": {"auditId": "release-001", "snapshot": {"kind": "deployment", "version": "release-candidate-2026-08-22"}},
+  "unitId": "R1",
+  "claimId": "Q1",
+  "method": "implementation-trace",
+  "hypotheses": [
+    {
+      "id": "R1-H1",
+      "statement": "the malformed-token rejection log omits correlation context",
+      "potentialImpact": "incident diagnosis is delayed",
+      "conditions": "malformed bearer token",
+      "counterHypothesis": "middleware attaches the correlation id",
+      "expectedSafeBehavior": "the emitted event includes the request id",
+      "evidenceSearched": "handler and middleware emission path",
+      "disconfirmationResult": "counter-refuted",
+      "evidenceRefs": ["R1-E1"],
+      "result": "supported",
+      "recommendation": "promote-to-finding",
+      "reasoning": "the direct emission call lacks the context field"
+    }
+  ],
+  "evidence": [
+    {
+      "id": "R1-E1",
+      "polarity": "supports",
+      "strength": "ES2",
+      "reproducibility": "not-applicable",
+      "source": "src/http.py:44",
+      "observation": "the rejection event is emitted without the request id"
+    }
+  ],
+  "coverageSummary": {
+    "checked": ["handler and middleware"],
+    "verifiedBehaviors": [
+      {"behavior": "malformed tokens are rejected", "evidenceRefs": ["R1-E1"]}
+    ],
+    "gaps": []
+  }
+}

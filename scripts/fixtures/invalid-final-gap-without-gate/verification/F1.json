@@ -1,0 +1,21 @@
+{
+  "auditBinding": {
+    "auditId": "no-gate-gap-001",
+    "snapshot": {
+      "kind": "other",
+      "identity": "gap-snapshot-1"
+    }
+  },
+  "findingId": "F1",
+  "method": "implementation-trace",
+  "checkedEvidence": [
+    "R1-E1"
+  ],
+  "evidence": [],
+  "conclusion": "buffer allocation without limit is confirmed, but max footprint cannot be stress-tested",
+  "limits": [],
+  "challenge": {
+    "status": "GAP",
+    "gapReason": "no stress testing environment available to measure limit"
+  }
+}

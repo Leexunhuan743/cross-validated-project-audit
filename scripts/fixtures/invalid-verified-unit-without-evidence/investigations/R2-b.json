@@ -1,0 +1,19 @@
+{
+  "auditBinding": {
+    "auditId": "release-001",
+    "snapshot": {
+      "kind": "deployment",
+      "version": "release-candidate-2026-08-22"
+    }
+  },
+  "unitId": "R2",
+  "claimId": "Q1",
+  "method": "user-path-trace",
+  "hypotheses": [],
+  "evidence": [],
+  "coverageSummary": {
+    "checked": [],
+    "verifiedBehaviors": [],
+    "gaps": []
+  }
+}

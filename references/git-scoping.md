@@ -1,67 +1,38 @@
-# Git 工件范围界定
+# Git 范围与拓扑命令字典
 
-只在审计 Git 分支、PR、commit、指定作者提交、工作区或 **Git-backed** 修复批次时读取本文件。分别报告历史拓扑、审查补丁和最终树状态，不用其中一个替代另外两个。
+**按需读取**：审计对象是 Git 分支、PR、commit、指定作者提交、工作区，或 Git-backed 修复批次，且需要把候选范围解析成不可变 commit 时读本文件。非 Git 工件不读。
 
-## 目录
+本文件只是**命令字典**。范围来源优先级、历史成立与当前状态的区分、Provenance 判定、supersession 规则都在 [../SKILL.md](../SKILL.md) 里（分别见 §3 步骤 1、§3 步骤 3、§6、§5），本文件不重复。
 
-- 派发前预检
-- PR 与功能分支
-- 单个 commit、范围与 merge commit
-- 指定作者提交
-- 工作区与多 worktree
-- squash、rebase 与 cherry-pick 等价性
-- 子模块、LFS、生成文件与交付卫生
-- 基线归因
+贯穿全文的一条：分别报告**历史拓扑**、**审查补丁**和**最终树状态**，不用其中一个替代另外两个。三者能对不上，且对不上的地方常常正是缺陷所在。
 
 ## 派发前预检
 
-先读取上层指令，再运行安全只读查询：
-
 ```bash
-git status --short
 git rev-parse --show-toplevel
 git branch --show-current
+git status --short
 git worktree list --porcelain
-git remote
 git for-each-ref --format='%(refname:short)' refs/remotes/
 ```
 
-不要 clean、stash、reset、checkout 覆盖或删除工作区。已跟踪修改、暂存修改、未跟踪文件和其他 worktree 都是用户数据。
+不要 `clean`、`stash`、`reset`、覆盖式 `checkout` 或删除工作区——已跟踪修改、暂存修改、未跟踪文件和其他 worktree 都是用户数据。默认不输出 `git remote -v` 或原始 remote URL；确需检查远端配置时，落盘前移除 userinfo、令牌和敏感查询参数。
 
-默认不要输出 `git remote -v` 或原始 remote URL。只有任务确需检查远端配置时才读取，并在写入日志、证据包或报告前移除 userinfo、令牌和敏感查询参数。
+派发前确认：目标 refs 可解析为 commit；base/head 与用户或 PR 元数据一致；范围不是因坏 ref 或错误比较方式意外为空；目标 worktree 与用户指定工件一致；本地脏状态既不会被误算进 PR、也不会被审计操作覆盖。
 
-在派发子代理前确认：
+范围为空时区分"确实无内容 / 补丁已等价合入 / head 已是 base 祖先 / 比较方式错误 / 目标 worktree 错误"，不把空输出直接当结论。shallow clone 或缺对象导致 `merge-base` 失败时，回退到平台 PR 元数据或补丁并显式记录；无法解析的拓扑列为残留缺口，不推断。
 
-1. 所有目标 refs 可解析为 commit。
-2. base/head 与用户或 PR 元数据一致。
-3. 审查范围不是因错误目录、坏 ref 或错误比较方式而意外为空。
-4. 目标 worktree 与用户指定工件一致。
-5. 本地脏状态不会被误算进 PR，也不会被审计操作覆盖。
+## 模糊范围：先枚举候选，不要静默取数字
 
-若范围为空，区分“确实无内容”“补丁已等价合入”“head 已是 base 祖先”“比较方式错误”和“目标 worktree 错误”，不要把空输出直接当结论。
-
-shallow clone 或缺对象导致 `merge-base` 失败时，回退到平台 PR 元数据/补丁并显式记录；无法解析的拓扑列为残留缺口，不要推断。
-
-## Git 范围解析协议
-
-Git 场景直接应用 [主流程的 Scope Resolution Protocol](../SKILL.md#scope-resolution-protocol)；本模块只负责把候选范围解析成可核对的不可变 commit，并提供 Git 特有的范围摘要。对“最近的提交/最近改的代码/近期 PR/这个作者最近的提交”等模糊请求：
-
-- 先枚举最少数量的**自然候选范围**，不要静默选择“最近 5 个/7 天”等任意数字；
-- 若候选范围会实质改变 Finding、Provenance、Gate 或明显漏掉用户关心的开发序列，先询问；
-- 询问前给出每个候选范围的 commit 数量、起止时间和简短主题摘要，让用户知道这些 commits 主要做了什么；
-- 若不同合理范围不会改变核心结论，可采用最小可辩护范围，并写 `audit.scopeResolution={basis:"ASSUMED", confidence:<HIGH|MEDIUM|LOW>, assumption:"..."}`。
-
-只读摘要示例：
+对"最近的提交""最近改的代码""近期 PR""这个作者最近的提交"，先枚举最少数量的**自然候选范围**，不要静默解释成"最近 5 个"或"7 天内"。
 
 ```bash
 git log --format='%H%x09%ad%x09%s' --date=short <candidate-range>
 ```
 
-提交主题只是帮助用户理解范围，不是 Evidence；最终范围仍解析成不可变 commit。
+询问用户前，给出每个候选范围的 commit 数量、起止时间和简短主题摘要。提交主题只帮助用户理解范围，**不是 Evidence**——最终范围仍要解析成不可变 commit。不同合理范围不会改变核心结论时，取最小可辩护范围并写 `basis=ASSUMED`。
 
 ## PR 与功能分支
-
-优先按上节协议从用户或当前 PR 元数据获得准确 base/head，并解析成不可变 commit；若多个合理基线会改变结论，先给出候选范围摘要再询问用户。
 
 ```bash
 git rev-parse <base>^{commit} <head>^{commit}
@@ -72,80 +43,36 @@ git diff --name-status <base>...<head>
 git diff --find-renames=50% <base>...<head>
 ```
 
-- 三点 diff（`base...head`）从 merge-base 开始，通常表示 PR 希望引入的补丁。
-- 两点 diff（`base head`）比较当前两棵树，表示最终状态差异。
-- base 已前进时两者可能不同；审查变更以平台 PR patch 或三点 diff 为主，评估集成状态时再检查两点 diff。
-- `--find-renames=50%` 明示默认相似度阈值。若大规模重写使 rename 检测失真，同时查看 `--no-renames`，不要让启发式掩盖新增/删除。
-- 平台 PR diff 可能排除未提交工作区内容；不要把本地脏状态误算进 PR。
+- **三点 diff（`base...head`）** 从 merge-base 起算，通常表示 PR 希望引入的补丁。
+- **两点 diff（`base head`）** 比较当前两棵树，表示最终状态差异。
+- base 已前进时两者会分叉：审查变更以平台 PR patch 或三点 diff 为主，评估集成状态时才看两点 diff。
+- `--find-renames=50%` 是把默认相似度阈值写明。大规模重写会让 rename 检测失真，此时同时看 `--no-renames`，别让启发式把新增/删除藏起来。
+- 平台 PR diff 通常不含未提交工作区内容，别把本地脏状态算进 PR。
 
 ## 单个 commit、范围与 merge commit
-
-普通 commit：
 
 ```bash
 git show --stat --summary <commit>
 git show --format=fuller --find-renames <commit>
-```
-
-根 commit 没有父提交；`git show <root>` 已能显示其完整补丁。不要使用会解析不存在父提交的 `<root>^`。
-
-范围：
-
-```bash
 git log --oneline --reverse <base>..<head>
-git diff <base>...<head>
 ```
 
-历史范围与当前状态必须分开：一个 Finding 可以在范围内真实成立、又在后续提交中被修复/revert/supersede。此时保留其历史 Decision 与 Provenance；只有 DIRECT Evidence 证明它在本审计唯一权威 target/state snapshot 中已消失，才把 Disposition 记为 `RESOLVED-VERIFIED`；存在真实 Gate 时，还必须把它对所有相关请求 Gate 的 applicability 写为 `DOES-NOT-APPLY`。若当前状态对 `RELEASE` / `SYSTEM` 或目标变更的安全集成有决定性影响却无法验证，收集并返回 current-state Evidence 缺口，由主代理在 Finding 的 Gate applicability 中写 `UNRESOLVED`；不把历史成立或历史修复直接外推到其它当前状态。需要评估不同 `head`、release candidate 或部署状态时，每个不可变状态分别建立审计实例；若新状态取代正在工作的旧状态，按 [audit-ledger.md](audit-ledger.md) 的双向 supersession 链冻结旧实例，不在原 state 中替换 `snapshot.head`。
+根 commit 没有父提交，`git show <root>` 已能显示完整补丁——不要解析不存在的 `<root>^`。
 
-merge commit 先确定用户要审计合并结果、某一父分支增量还是冲突解决：
+merge commit 先问清审合并结果、某一父分支增量还是冲突解决：
 
 ```bash
-git show --cc --stat <merge>
+git show --cc --stat <merge>       # 组合视图
 git show --cc <merge>
-git diff <merge>^1 <merge>
+git diff <merge>^1 <merge>         # 逐父对照
 git diff <merge>^2 <merge>
 ```
 
-对 octopus merge 枚举所有父提交。组合 diff 不等于逐父 diff；冲突解决缺陷常只在组合视图或逐父对照中出现。
-
-## 指定作者提交
-
-`scopeMode=author-commits` 时，先把“作者是谁、在哪个不可变范围内”解析清楚，再审查；默认按 Git **author identity** 归因，不把 committer、reviewer 或 merge 执行者混为作者。
-
-1. 按 Git 范围解析协议解析并记录不可变 `<base>` / `<head>` 或用户给定范围；“最近/近期”不得静默解释成任意 commit 数或时间窗。
-2. 先枚举范围内提交及 author name/email，再做身份归一；`--author` 是正则匹配，只可作候选过滤，姓名重名、多个邮箱或机器人代提交时必须核对实际 identity，不靠显示名猜测。
-3. 对命中的每个提交读取真实 patch 与父提交关系；同时收集其触达的路径/符号，在目标 `head` 上检查当前实际状态。被后续提交回退、覆盖或重写的内容仍属于历史审计证据，但不得冒充当前树仍存在。
-4. 对每个需要变更归因的 material Finding 收集可直接核对的 base/head、目标提交、历史实现和可达性 Evidence；最终 Provenance 由任务统一评估模型判定，本模块不重复定义归因枚举。
-5. 报告列出作者身份、范围、命中提交集合和排除的歧义 identity；不得把“该作者改过这个文件”直接等同于“文件中的所有问题都由该作者引入”。
-
-安全只读枚举示例：
-
-```bash
-git log --format='%H%x09%an%x09%ae' <base>..<head>
-git show --format=fuller --find-renames <selected-commit>
-```
-
-若审计的是“该作者全部历史提交”，仓库历史过大时先把时间/分支/版本范围写入 `Audit scope`；无法可靠穷尽时明确标为部分审计。
-
-## 工作区与多 worktree
-
-分别检查：
-
-```bash
-git diff
-git diff --cached
-git status --short
-git worktree list --porcelain
-```
-
-`git diff` 不含未跟踪文件。若用户要求“全部本地修改”，读取相关未跟踪文件，但不自动加入、删除或改名。多 worktree 的分支、HEAD 和脏状态相互独立；所有命令都从目标 worktree 运行。
-
-需要用 `snapshot.kind=git-worktree` 固定未提交 PRE/POST 状态时，两个时点必须使用同一 scope 与排除规则生成确定性 manifest：按规范化相对路径排序，逐项记录 tracked/staged/unstaged/untracked/deleted 类型、文件模式或链接类型、内容 SHA-256，并记录排除项及原因；manifest 自身以 UTF-8 LF 序列化后计算 SHA-256。不得跟随 symlink/junction 读取 scope 外内容，不读取 `.env`/凭据或项目明确排除的生成目录，也不得用 `git add`、临时 commit 或写 object database 来换取身份。PRE/POST HEAD 分别记录在 snapshot 的 `base/head`，即使二者相同，`initialSha256/finalSha256` 仍可证明未提交内容的实际转换。manifest 生成后再次检查 scope 文件状态；发生外部漂移时重新固定或接替审计，不能沿用旧 hash。
+octopus merge 枚举所有父提交。组合视图与逐父对照都要看：冲突解决缺陷常只出现在其中一个里。
 
 ## squash、rebase 与 cherry-pick 等价性
 
-不要从 commit 数量或空范围推断内容关系：
+不从 commit 数量或空范围推断内容关系：
 
 ```bash
 git merge-base <base> <head>
@@ -153,43 +80,63 @@ git merge-base --is-ancestor <head> <base>
 git diff --stat <base> <head>
 git rev-parse <base>^{tree} <head>^{tree}
 git cherry -v <base> <head>
-```
-
-- 典型 squash merge 不保留原分支提交的祖先关系；原提交范围通常仍非空，但补丁可能已等价进入 base。
-- `base..head` 为空通常说明 head 已是 base 的祖先或两者相同，不是 squash 的通用特征。
-- `git cherry` 使用 patch-id 帮助识别等价补丁，但对 squash、多提交重排、部分 cherry-pick 和冲突改写可能失效；必须回落到 tree diff 和实际行为。
-- 比较两轮 rebase/cherry-pick 序列时使用：
-
-```bash
 git range-diff <old-base>..<old-head> <new-base>..<new-head>
 ```
 
-`range-diff` 用于提交序列对应，不替代最终 tree diff、测试或运行时验证。
+- 典型 squash merge 不保留原分支的祖先关系；原范围通常仍非空，但补丁可能已等价进入 base。
+- `base..head` 为空通常只是 head 已是 base 祖先或两者相同，**不是** squash 的通用特征。
+- `git cherry` 靠 patch-id 识别等价补丁，但对 squash、多提交重排、部分 cherry-pick 和冲突改写会失效——必须回落到 tree diff 和实际行为。
+- `range-diff` 比较两轮 rebase/cherry-pick 序列的对应关系，不替代最终 tree diff、测试或运行时验证。
+
+## 指定作者提交
+
+默认按 Git **author identity** 归因，不把 committer、reviewer 或 merge 执行者混为作者。
+
+```bash
+git log --format='%H%x09%an%x09%ae' <base>..<head>
+git show --format=fuller --find-renames <selected-commit>
+```
+
+`--author` 是正则匹配，只能作候选过滤：重名、多邮箱、机器人代提交时必须核对真实 identity，不靠显示名猜测。对命中的每个提交读真实 patch 与父提交关系，并在目标 `head` 上检查当前实际状态。
+
+不得把"该作者改过这个文件"等同于"文件中的所有问题都由该作者引入"。报告列出作者身份、范围、命中提交集合和被排除的歧义 identity。审计"该作者全部历史提交"而仓库过大时，先把时间/分支/版本范围写进 `Audit scope`，无法可靠穷尽就明确标为部分审计。
+
+## 工作区、多 worktree 与未提交状态的身份
+
+```bash
+git diff              # 工作区 vs 索引，不含未跟踪文件
+git diff --cached     # 索引 vs HEAD
+git status --short
+git worktree list --porcelain
+```
+
+`git diff` 不含未跟踪文件——用户要"全部本地修改"时读取相关未跟踪文件，但不自动 `add`、删除或改名。多 worktree 的分支、HEAD 和脏状态相互独立，所有命令都从目标 worktree 运行。
+
+需要用 `snapshot.kind=git-worktree` 固定未提交的 PRE/POST 状态时，两个时点必须用**同一 scope 与排除规则**生成确定性 manifest：按规范化相对路径排序，逐项记录 tracked/staged/unstaged/untracked/deleted 类型、文件模式或链接类型、内容 SHA-256，并记录排除项及原因；manifest 自身以 UTF-8 LF 序列化后再算 SHA-256。
+
+不跟随 symlink/junction 读取 scope 外内容，不读 `.env`、`credentials` 或项目明确排除的生成目录，也**不得用 `git add`、临时 commit 或写 object database 来换取一个身份**。PRE/POST HEAD 记在 snapshot 的 `base`/`head`——即使两者相同，`initialSha256`/`finalSha256` 仍能证明未提交内容确实发生了转换。manifest 生成后再次检查 scope 文件状态，发生外部漂移就重新固定或接替审计，不沿用旧 hash。
 
 ## 子模块、LFS、生成文件与交付卫生
-
-根据仓库实际配置运行存在的工具：
 
 ```bash
 git diff --submodule=log <base>...<head>
 git submodule status --recursive
 git lfs ls-files
-git diff --check <base>...<head>
+git diff --check <base>...<head>       # 冲突标记 / 空白错误
+git diff --numstat -- <path>           # 二进制/大文件变更
 ```
 
-- 检查 `.gitattributes` 后再判断 LFS；没有 Git LFS 时记录未验证，不要安装。
-- 子模块 pointer 变化要核对目标 commit 可获取、来源可信以及上层代码兼容。
-- 核对计划/提交集合与变更文件是否一致：遗漏文件、杂散文件、冲突标记、patch 标记、vendor 修改、lockfile/workspace、导出表、生成物和 `.gitignore`。
-- 生成物若应提交，确认源文件与生成物同步；若不应提交，确认没有污染交付树。
-- 二进制/大文件变更用 `git diff --numstat -- <path>` 识别；无法逐行审查的列为残留缺口，不默认跳过也不默认放行。
+先看 `.gitattributes` 再判断 LFS；没有 Git LFS 就记未验证，不安装。子模块 pointer 变化要核对目标 commit 可获取、来源可信、上层代码兼容。
+
+核对计划/提交集合与变更文件是否一致：遗漏文件、杂散文件、冲突标记、patch 标记、vendor 修改、lockfile/workspace、导出表、生成物、`.gitignore`。生成物若应提交就确认与源文件同步，若不应提交就确认没污染交付树。无法逐行审查的二进制/大文件变更列为残留缺口——不默认跳过，也不默认放行。
 
 ## 基线归因
 
-涉及“以前是否如此”时读取基线版本：
+涉及"以前是否如此"时读基线版本：
 
 ```bash
 git show <base>:<path>
 git blame <head> -- <path>
 ```
 
-`blame` 只定位历史线索，不判断责任。这里负责收集 base/head、历史实现、可达性和增量影响的 DIRECT Evidence；最终 Provenance 分类由 assessment model 的唯一规范定义决定，本模块不重复枚举语义。
+`blame` 只定位历史线索，**不判断责任**。这里只负责收集 base/head、历史实现、可达性和增量影响的 DIRECT Evidence；Provenance 分类由 §6 的唯一规范定义裁决，本文件不重复枚举语义。

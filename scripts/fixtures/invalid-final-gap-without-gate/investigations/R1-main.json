@@ -1,0 +1,32 @@
+{
+  "auditBinding": {
+    "auditId": "no-gate-gap-001",
+    "snapshot": {
+      "kind": "other",
+      "identity": "gap-snapshot-1"
+    }
+  },
+  "unitId": "R1",
+  "claimId": "Q1",
+  "method": "implementation-trace",
+  "checkedEvidence": [],
+  "evidence": [
+    {
+      "id": "R1-E1",
+      "polarity": "supports",
+      "strength": "ES2",
+      "reproducibility": "not-applicable",
+      "source": "src/parser.py:10",
+      "observation": "allocation loop has no upper bound check"
+    }
+  ],
+  "hypotheses": [
+    {
+      "id": "R1-H1",
+      "statement": "unbounded memory growth on large inputs",
+      "result": "unresolved",
+      "recommendation": "promote-to-finding"
+    }
+  ],
+  "limits": []
+}
