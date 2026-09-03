@@ -12,6 +12,10 @@
   "requires a recorded disconfirmation attempt"
  ],
  "invalid-confirmed-without-disconfirmation.error_count": 1,
+ "invalid-coverage-without-exhaustive": [
+  "allowed only when stop.policy=exhaustive"
+ ],
+ "invalid-coverage-without-exhaustive.error_count": 1,
  "invalid-disconfirmation-result-typo": [
   "invalid value 'counter-supporte'"
  ],
@@ -36,6 +40,14 @@
   "a single observation cannot carry that strength"
  ],
  "invalid-evidence-strength-unrepeatable.error_count": 1,
+ "invalid-exhaustive-closed-with-residual": [
+  "allowed only for incomplete exhaustive coverage"
+ ],
+ "invalid-exhaustive-closed-with-residual.error_count": 1,
+ "invalid-exhaustive-unclosed": [
+  "FINAL incomplete exhaustive coverage requires a residual risk"
+ ],
+ "invalid-exhaustive-unclosed.error_count": 1,
  "invalid-exploration-beyond-warrant": [
   "must be between 0 and 2"
  ],

@@ -607,7 +607,7 @@ Task: 在目标/scope 内自主寻找 material 风险，不受主代理 risk map
 
 - `startedAt` 与 `updatedAt`：创建与更新时的 ISO-8601 UTC 时间戳（如 `2026-09-03T12:00:00Z`）。
 - `scopeResolution`：范围来源依据 `basis`（`USER` / `PLATFORM` / `REPOSITORY` / `ASSUMED`）与置信度 `confidence`（`HIGH` / `MEDIUM` / `LOW`，`ASSUMED` 建议 `MEDIUM`/`LOW`）；仅 `ASSUMED` 需写 `assumption`。
-- `stop` 与 `scopeCoverage`：默认停止规则由任务目标驱动，省略不物化；仅在用户明确要求逐文件穷尽审计时物化 `stop.policy="exhaustive"`，此时必须同时物化非空的 `scopeCoverage` inventory（并按 snapshot 绑定，逐项记录 completed 或带理由的 excluded）；若有预设预算或自定义停工条件则设为 `stop.policy="user-defined"`。
+- `stop` 与 `scopeCoverage`：默认停止规则由任务目标驱动，省略不物化；仅在用户明确要求逐文件穷尽审计时物化 `stop.policy="exhaustive"`，此时必须同时物化非空的 `scopeCoverage` inventory（并按 snapshot 绑定，逐项记录 completed 或带理由的 excluded）；若有预设预算或自定义停工条件则设为 `stop.policy="user-defined"`。穷尽形状与逐文件示例见 `scripts/fixtures/valid-exhaustive/`。
 - `snapshot` 字段始终存在，`ACTIVE` 身份未定时**显式写 `null`**，每个 `FINAL` 必须填不可变 identity。不能用分支名、"当前部署"当身份。合法 `kind` 只有五种，每种只带自己的字段、不得混入其它变体：
 
   | kind | 字段 | 用途 |

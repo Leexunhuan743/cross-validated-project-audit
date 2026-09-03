@@ -87,7 +87,7 @@ python -B scripts/validate_audit_state.py --self-test scripts/fixtures
 
 **它不做表单校验**——不检查枚举、id 格式、路径词法、目录布局、未建模字段。字段形状以 fixture 为准。代价是缺字段会静默跳过依赖它的检查，因此不变量 0、1 与 1b 专门守会让检查静默失效的情况：不变量 0 管身份与引用（重复 id 会静默覆盖、悬空引用会静默解析为空），不变量 1/1b 管驱动不变量判定的前提字段缺失及驱动枚举闭合，一律报错。
 
-`--self-test` 跑 34 个 fixture（7 个正例 + 27 个反例）。改动 validator 后应跑一遍。
+`--self-test` 跑 38 个 fixture（8 个正例 + 30 个反例）。改动 validator 后应跑一遍。
 
 validator 通过只证明状态内部一致，不证明代码事实和风险判断正确。
 
