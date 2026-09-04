@@ -78,7 +78,7 @@ description: "对高风险项目、变更、PR、指定作者提交、安全问�
 - `objectiveProfiles`——审计目标画像，必须包含 `general`（通用审计规范）；安全专项审计额外加入 `security`；修复验证追加 `fix-verification`（触发修复批次与 resolutionChallenge 流程）；去重保存。
 - `scopeResolution`——记录范围解析来源 `basis`（`USER` / `PLATFORM` / `REPOSITORY` / `ASSUMED`）与置信度 `confidence`（`HIGH` / `MEDIUM` / `LOW`）；只有 `ASSUMED` 需附带 `assumption` 假设。
 - `executionMode`——**默认 `audit-only`**（目标树严格只读，不修改被审计产品工件、跟踪的 Git 记录或外部系统）；仅在用户明确实施指令时设 `audit-and-fix`（仍不授权 commit/push/deploy）。
-- `audit.gates`——**只有用户要求合并、发布或系统就绪判断时才创建**，target 为 `CHANGE`（merge/integrate 就绪）、`RELEASE`（候选发布）、`SYSTEM`（当前系统适配/就绪）。这些 target 不替代 `scopeMode`；多个 Gate target 共享同一审计 target 与 snapshot 并分别裁决，不同状态必须拆成不同审计实例。无法归一的自定义完成条件转成 REQUIRED Claim，相关 Gate 为 `INCOMPLETE`。
+- `audit.gates`——**只有用户要求合并、发布或系统就绪判断时才创建**，通过 `targets` 数组声明门禁目标：`CHANGE`（merge/integrate 就绪）、`RELEASE`（候选发布）、`SYSTEM`（当前系统适配/就绪）。这些 target 不替代 `scopeMode`；多个 Gate target 共享同一审计 target 与 snapshot 并分别裁决，不同状态必须拆成不同审计实例。无法归一的自定义完成条件转成 REQUIRED Claim，相关 Gate 为 `INCOMPLETE`。
 
 默认阻断阈值 `High`，用户只能用 `policies.<target>.blockAtOrAbove=Medium|Low` 收紧。
 
@@ -100,12 +100,12 @@ Deliverable: 合并门禁裁决 + 阻断清单
 严格按 **Risk claim → verification method → executor** 落地到 `state.json`：
 
 - `claims[]` 每个风险主张只写一次（稳定 `Q<n>` 可判定陈述、失败后果、优先级、有界范围）。`REQUIRED` = 完成任务契约或收口 material gap 所必需；义务外探索才是 `EXPLORATORY`。只有影响实际 Gate 时写 `gateTargets`。
-- `verificationUnits[]` 每种方法一个 `R<n>`，引用 `claimId`，不复制主张内容。最后才选执行者。
+- `verificationUnits[]` 每种方法一个 `R<n>`，引用 `claimId`，不复制主张内容。最后才选执行者。Unit 具备四态完整生命周期：`status="planned"`（已在 state 规划但未派发）、`"pending"`（已向调查者派发等待回报）、`"reported"`（已收到调查工件并核对）、`"verified"`（主代理复核归约通过）。
 - `highest` 主张先写 `safePrediction`、`failurePrediction`、`discriminatingObservation`、`sufficiencyCriterion` 四项，并至少用两个不同 method；`high` 只写后两项。`normal` 不要求。
 - 没有明确独立验证硬要求时，优先把最高风险的异质单元交给不同隔离执行者；并行失败时退化为串行是合法降级，但不豁免隔离评估。
 - **单 Agent 执行时的规程**：在当前环境未配置真正隔离的多个执行者时，**禁止把同一个执行者写成两个不同的 `executor` 字符串冒充独立验证**。保留方法异质性（不同 `method`），如实标 `isolation=NOT-ISOLATED`，并在报告的 Residual uncertainty 中披露"未达成物理隔离的独立双人审计"。
 
-调查者任务必须有明确边界、指定方法、允许检查、唯一 investigation 接收路径和截止条件。调查者直接将完整 JSON 写入 `.audits/<auditId>/investigations/<R_ID>-<EXECUTOR>.json`，写完回报路径与一句摘要。主代理接收时核对归属与内容，再把 Unit 置为 `reported`。
+调查者任务必须有明确边界、指定方法、允许检查、唯一 investigation 接收路径和截止条件（可用 `audit_init.py investigation --unit <R_ID> --claim <Q_ID> --method <ARCHETYPE> --executor <EXECUTOR>` 一键原子生成带 `auditBinding` 的合规骨架与隔离目录）。调查者直接将完整 JSON 写入 `.audits/<auditId>/investigations/<R_ID>-<EXECUTOR>.json`，写完回报路径与一句摘要。主代理接收时核对归属与内容，在 `state.json.verificationUnits[]` 写入 `"investigationFile": "investigations/<R_ID>-<EXECUTOR>.json"`，再把 Unit 置为 `reported`。
 
 **隔离边界：被审计目标树只读，审计工作区可写但分片**。调查者工作区分三区，均在 `.audits/<auditId>/` 下且按 unit + executor 分片（配合禁区与目标树权限如下）：
 
@@ -180,10 +180,10 @@ audit-only 首次运行可把 `.audits/` 单条追加到 `.git/info/exclude`（�
 ### 步骤 4 · 主代理归约
 
 1. 合并同一逻辑问题为一个 Finding，必须有现实影响链、触发条件、H/E 引用、可判定退出条件。
-2. **亲自复核决定性证据**并写 `verification/F<n>.json`：不能只转述调查者结论。`checkedEvidence` 只引用该 Finding 的 investigation 链；新产生的 `F<n>-E<m>` 必须回写到 Finding 的某个 evidence 字段。
-3. **归约 Unit 并落盘**：复核通过的 Unit，在 `state.json.verificationUnits[]` 里从 `reported` 推进到 `verified`，并写入与该 Unit `hypotheses[]` 一一对应的 `reconciliations[]`——每条假说处置为 `FINDING` / `REFUTED` / `RESIDUAL-GAP` 并绑定 DIRECT 证据（`FINDING` 至少一条 `supports`、`REFUTED` 至少一条 `refutes`、`RESIDUAL-GAP` 指向 `material=true` 的 `G<n>`）。**停在 `reported` 不推进不会报错，但会让相关 Gate 因"REQUIRED Unit 未全部 verified"推导为 `INCOMPLETE`**——不变量 4/6 只在 `verified` 上跑，漏推进等于把缺口藏起来。
+2. **亲自复核决定性证据**并写 `verification/F<n>.json`（可用 `audit_init.py verification --finding F<n> --method <ARCHETYPE> --checked-evidence <E_ID>` 生成骨架）：不能只转述调查者结论。`checkedEvidence` 只引用该 Finding 的 investigation 链；新产生的 `F<n>-E<m>` 必须回写到 Finding 的某个 evidence 字段；在 `state.json.findings[]` 显式写入 `"verificationFile": "verification/F<n>.json"`。
+3. **归约 Unit 并落盘**：复核通过的 Unit，在 `state.json.verificationUnits[]` 里从 `reported` 推进到 `verified`，并写入与该 Unit `hypotheses[]` 一一对应的 `reconciliations[]`——每项为 `{hypothesisId, result, evidenceRefs, [findingId], [residualRiskId]}`，其中 `result` 严格使用全大写 `"FINDING"` / `"REFUTED"` / `"RESIDUAL-GAP"` 并绑定 DIRECT 证据（`FINDING` 至少一条 `supports`、`REFUTED` 至少一条 `refutes`、`RESIDUAL-GAP` 指向 `material=true` 的 `G<n>`）。**停在 `reported` 不推进不会报错，但会让相关 Gate 因"REQUIRED Unit 未全部 verified"推导为 `INCOMPLETE`**——不变量 4/6 只在 `verified` 上跑，漏推进等于把缺口藏起来。
 4. 支持与反证冲突时，定位**最小分歧前提**（双方真正分歧的那个事实），用新的判别性 DIRECT Evidence 裁决，**不按票数**。Finding 形成前写在 investigation 的 reasoning/disconfirmation，已形成则写在 `verification/F<n>.json` 并引用双方 Evidence id——**不新增平行 live 字段**。保留并解释冲突证据，目标环境可重复反证通常高于本地模拟。
-5. Severity 为 Critical/High 且 Decision ∈ `CONFIRMED`/`CONDITIONAL`/`NEEDS-DECISION` 的 Finding 必须记录第二挑战（`challenge`）。无法完成时用 `CONDITIONAL` + `challenge.status=GAP` 并传播缺口。
+5. Severity 为 Critical/High 且 Decision ∈ `CONFIRMED`/`CONDITIONAL`/`NEEDS-DECISION` 的 Finding 必须记录第二挑战（`challenge`）。完成时 `status="COMPLETED"`，模式二选一：`mode="HETEROGENEOUS-METHOD"`（异质方法挑战，必须有 `unitId`、`method`、`evidenceRefs`）或 `mode="EQUIVALENT-DIRECT-DISCONFIRMATION"`（等价直接反证，引新证据，禁止带 `unitId`）；无法完成时用 `CONDITIONAL` + `challenge.status="GAP"`（此时只留 `gapReason`，严禁携带 `mode/unitId/method/evidenceRefs/result` 等已完成字段）并传播缺口。
 6. 修复验证用 `resolutionChallenge`（判"当前快照风险是否已消失"），**不能拿"问题过去成立"的 challenge 顶替**；它没有 GAP 状态。
 7. 只有至少一个 `CONFIRMED` 后才扩大同类搜索，模式范围定为 `ISOLATED`/`SYSTEMIC`/`UNKNOWN`。
 
@@ -396,7 +396,7 @@ CLI、UI、迁移、SDK、计划方案不是额外调度主键，它们只决定
 直接写入上面的 canonical destination，严格用 fixture 的 investigation 形状：
 先写与当前 `state.json.audit` 完全一致的 `auditBinding={auditId,snapshot}`，再写
 unitId、claimId、method、hypotheses、evidence、coverageSummary。H/E id 使用 Unit
-前缀并唯一。schema 之外不得自造键。优先用环境的原子写入；没有就用同目录 `.tmp` 再
+前缀并唯一。每条假说的 `result` 与 `recommendation` 严格闭合配对（`supported → promote-to-finding`；`refuted → close`；`unresolved → promote-to-finding|residual-gap`；`disconfirmationResult="counter-supported"` 时必须 `result="refuted"`）。schema 之外不得自造键。优先用环境的原子写入；没有就用同目录 `.tmp` 再
 rename——主代理以"JSON 能完整解析且校验通过"为准，写入中断留下的半截文件按孤儿文件处理。
 
 # Return
@@ -417,7 +417,7 @@ MAP-CORRECTION（如有）、覆盖与缺口（含你没看的地方）、实际
 - **证据里没有真实凭据**——看到密钥、Token、私钥、连接串或 PII 原文，直接退回重写，不要替他脱敏后收下（你不知道它抄到了哪里、还有没有别处）。
 - **核对调查者的实际写入范围**——是否只落在 `investigations/<R_ID>-<EXECUTOR>.json`、`probes/<R_ID>-<EXECUTOR>/`、`scratch/<R_ID>-<EXECUTOR>/` 三处，严禁触碰禁区或被审计目标树。
 - `scratch/` 应已清理；`probes/` **应当还在**——里面是主代理复跑核对要用的东西。步骤 4 复核后：被 Evidence 引用的判别性探针保留为复核附件，一次性噪音清理。
-- 核对通过才写 canonical 引用并把 Unit 置为 `reported`；不通过则退回重写，孤儿文件留待重新派发覆盖。
+- 核对通过才在 `verificationUnits[]` 写入 `"investigationFile": "investigations/<R_ID>-<EXECUTOR>.json"` 并把 Unit 置为 `reported`；不通过则退回重写，孤儿文件留待重新派发覆盖。
 - **重试上限与熔断**：同一 Unit 最多派发 3 次（即 2 次退回重写）。连续失败即熔断——停止重派，把失败记入 `dispatches[]`（含 `failureReason`），并为该 Unit 覆盖不到的主张范围新建一条 `material=true` 的 `residualRisks[G<n>]`（有 Gate 时把相关 target 写进 `affectsGates`，使其推导为 `INCOMPLETE`），再在报告里披露这个缺口。
 - **回报里"超出本 Claim 范围的 H"计数不为零时，逐条 triage**（material 走 H→F、否则转披露），并在发现新风险面时回到步骤 2 补 Claim。
 
@@ -453,7 +453,7 @@ Affected assumption: <当前 Unit 如何依赖它>
 
 **先建修复映射**——每个原 Finding 一张：`根因模式 | 已知实例 | 修复范围 | 明确排除项 | 行为变化 | 验收测试 | PRE-fix 应失败 | 回归范围 | 残留风险`。PRE-fix 代码和原始报告都要读，核对实际 diff、调用者、公共入口和测试，**不只看 commit message 或"测试已通过"**。若当前审计没有可复用的规范化原 Finding，先把历史报告/issue/commit message 里的缺陷主张**仅作为 Hypothesis seed**，按正常 H/E/F/Decision 流程重建并裁决——旧报告写了"bug/High/fixed"不等于已确认事实。
 
-**划分批次**——按共享根因与修复策略、同一子系统/数据边界、能否由同一组验收命令验证、相同回滚与兼容风险、是否会互相遮蔽失败原因组合。**高风险、不可逆、难回滚或证据复杂的问题单独成批**；多个同根因、同验证路径的低风险实例可合并。每批声明允许修改的路径（`allowedPaths`，可移植相对路径）和验收条件。
+**划分批次**——在 `state.json.fixWorkflow` 下建立 `batches[]`，并维护 `generation`（代数）、`findingMappings[]` 与 `finalRegressionBatchId`。按共享根因与修复策略、同一子系统/数据边界、能否由同一组验收命令验证、相同回滚与兼容风险、是否会互相遮蔽失败原因组合。**高风险、不可逆、难回滚或证据复杂的问题单独成批**；多个同根因、同验证路径的低风险实例可合并。批次对象包含 `id`、`kind`（`FIX`/`VERIFY`/`REGRESSION`）、`status`（`PENDING`/`PASSED`/`FAILED`）、`dependsOn`、`findingIds`（`FIX` 与 `VERIFY` 必填，且必须在 `findingMappings` 登记）、`evidenceRefs` 及通过时的 `validatedGeneration`；每批声明允许修改的路径（`allowedPaths`，可移植相对路径）和验收条件。
 
 三类批次的门：
 
@@ -607,7 +607,7 @@ Task: 在目标/scope 内自主寻找 material 风险，不受主代理 risk map
 
 - `startedAt` 与 `updatedAt`：创建与更新时的 ISO-8601 UTC 时间戳（如 `2026-09-03T12:00:00Z`）。
 - `scopeResolution`：范围来源依据 `basis`（`USER` / `PLATFORM` / `REPOSITORY` / `ASSUMED`）与置信度 `confidence`（`HIGH` / `MEDIUM` / `LOW`，`ASSUMED` 建议 `MEDIUM`/`LOW`）；仅 `ASSUMED` 需写 `assumption`。
-- `stop` 与 `scopeCoverage`：默认停止规则由任务目标驱动，省略不物化；仅在用户明确要求逐文件穷尽审计时物化 `stop.policy="exhaustive"`，此时必须同时物化非空的 `scopeCoverage` inventory（并按 snapshot 绑定，逐项记录 completed 或带理由的 excluded）；若有预设预算或自定义停工条件则设为 `stop.policy="user-defined"`。穷尽形状与逐文件示例见 `scripts/fixtures/valid-exhaustive/`。
+- `stop` 与 `scopeCoverage`：默认停止规则由任务目标驱动，省略不物化；仅在用户明确要求逐文件穷尽审计时物化 `stop.policy="exhaustive"`，此时必须同时物化非空的 `scopeCoverage` inventory（包含 `snapshot`、`declaredMembers` 全量清单、`completedMembers` 已完成清单、`excludedMembers` 排除清单，每项排除必须为 `{member, reason}` 结构，且有缺口时挂 `residualRiskId`）；若有预设预算或自定义停工条件则设为 `stop.policy="user-defined"`。穷尽形状与逐文件示例见 `scripts/fixtures/valid-exhaustive/`。
 - `snapshot` 字段始终存在，`ACTIVE` 身份未定时**显式写 `null`**，每个 `FINAL` 必须填不可变 identity。不能用分支名、"当前部署"当身份。合法 `kind` 只有五种，每种只带自己的字段、不得混入其它变体：
 
   | kind | 字段 | 用途 |
@@ -621,7 +621,7 @@ Task: 在目标/scope 内自主寻找 material 风险，不受主代理 risk map
   **未提交修复的身份**：工作树没有授权 commit 时，用 PRE/POST HEAD 加确定性内容 manifest 形成 `git-worktree`——不创建越权 commit，也不把未提交内容冒充 Git object。两个时点必须用同一 scope 与排除规则生成 manifest（逐项记录类型、模式、内容 SHA-256，并记录排除项），manifest 自身序列化后再算 SHA-256。
 - `sharedFacts` 的 `source` 必须是 `path:line` 或可重跑命令，**不得是记忆、结论或转述**——不可核对来源的 shared fact，其下游发现链不可信。共享事实不破坏隔离；共享 Hypothesis / Finding / Decision 才会。每条 shared fact **统一赋予稳定短 id `P<n>`**（与 `Q<n>` Claim / `R<n>` Unit / `F<n>` Finding / `G<n>` Residual / `X<n>` 探索轮同一套约定），调查者回报与 `MAP-CORRECTION` 都按这个 id 指认事实，不要用原文长句反复引用。
 - `sufficiency=MET` 需要：至少一个 verified Unit 产生 DIRECT Evidence；REQUIRED Claim 下**全部** Unit verified；`highest` 还要两个不同 method。拿不到就 `NOT-MET`，不能空集合放行。
-- `disposition` 是可选字段，仅在 `decision=CONFIRMED` 时才可显式写入；`CONDITIONAL`/`NEEDS-DECISION`/`REJECTED`/`PENDING` **一律不得物化该字段**（validator 见到即报错，包括显式写成 `OPEN`）——它们的缺口各自记在 `decisionHistory[]` 与报告的 Residual uncertainty 里。合法取值四个：`OPEN`（省略即此值，问题确认成立且未处置）、`REMEDIATING`（修复中）、`RESOLVED-VERIFIED`（已修复并验证）、`ACCEPTED-RISK`（有人签字承担）。后三者各有硬约束：`REMEDIATING` 必须有 `FIX` 批次；`RESOLVED-VERIFIED` 必须有引用其 `resolutionEvidence` 的 `PASSED VERIFY` 批次、所有请求的 Gate 均为 `DOES-NOT-APPLY`，且 Critical/High 另需 `resolutionChallenge`；`ACCEPTED-RISK` 是全局接受，**一旦存在 Gate 就禁止使用**，须改用 per-target `treatment=ACCEPTED`。Disposition 与 Decision 正交：`CONFIRMED` 表示问题**曾确认成立**，不表示当前仍存在或已修复。
+- `disposition` 是可选字段，仅在 `decision=CONFIRMED` 时才可显式写入；`CONDITIONAL`/`NEEDS-DECISION`/`REJECTED`/`PENDING` **一律不得物化该字段**（validator 见到即报错，包括显式写成 `OPEN`）——它们的缺口各自记在 `decisionHistory[]` 与报告的 Residual uncertainty 里。合法取值四个：`OPEN`（省略即此值，问题确认成立且未处置）、`REMEDIATING`（修复中）、`RESOLVED-VERIFIED`（已修复并验证）、`ACCEPTED-RISK`（有人签字承担）。后三者各有硬约束：`REMEDIATING` 必须有 `FIX` 批次；`RESOLVED-VERIFIED` 必须有引用其 `resolutionEvidence` 的 `PASSED VERIFY` 批次、所有请求的 Gate 均为 `DOES-NOT-APPLY`，且 Critical/High 另需 `resolutionChallenge`；`ACCEPTED-RISK` 是全局接受，必须在 Finding 根节点物化 `riskAcceptanceAuthorization` 对象（包含 `text`, `auditId`, `snapshot`，严禁出现 `target` 字段）；**一旦存在 Gate 就禁止使用全局接受**，须改用 per-target `gates[<target>].treatment="ACCEPTED"` 并在其内部物化 `authorization`（包含 `text`, `auditId`, `snapshot`, `target`）。Disposition 与 Decision 正交：`CONFIRMED` 表示问题**曾确认成立**，不表示当前仍存在或已修复。
 - 所有 `residualRiskId` 都必须指向 `material=true` 的 `G<n>`——用非 material residual 承接缺口等于把缺口藏起来。
 - `residualRisks[].affectsGates` 省略表示"仅报告披露、不参与任何 Gate"。
 - `fixWorkflow` 只在 `audit-and-fix` 且已有 Finding 进入 `REMEDIATING`/`RESOLVED-VERIFIED` 时才写——不为空流程造批次，也不在 `audit-only` 里物化。
@@ -644,7 +644,7 @@ Task: 在目标/scope 内自主寻找 material 风险，不受主代理 risk map
 
 **4. 证据图**——`reconciliations[]` 只在 `verified` Unit 出现，与 investigation 的 `hypotheses[]` 一一对应、不重复；每条归约必须带 DIRECT 证据，`FINDING` 至少一条 `supports`、`REFUTED` 至少一条 `refutes`；`findingId` 只在 `FINDING` 出现，`residualRiskId` 只在 `RESIDUAL-GAP` 出现且必须指向 material residual；证据必须来自本 Unit 自己的 investigation；`supportingEvidence` 只引 `supports`，`refutingEvidence`/`resolutionEvidence` 只引 `refutes`，`provenanceEvidence` 只引 `context`（且只在 `provenance` 存在时）；`sourceHypotheses` 与归约为 FINDING 的 H 双向一致；Finding 引用的每个证据都必须落在它的来源或验证链上；`verifiedBehaviors` 是 `{behavior, evidenceRefs}` 对象（裸字符串不可复核）且只引本工件证据。
 
-**5. 反证**——H 的 `result` 与 `recommendation` 必须配对；`counter-supported` 的原 H 必须关闭；`ES3`/`ES4` 证据必须 `repeatable`/`conditional`。Finding 级 `disconfirmation` 与 verification 级 `challenge` 是两次独立检查，不可互替：`CONFIRMED`/`NEEDS-DECISION` 两者都必须是 `counter-refuted`；`CONDITIONAL` 不得是 `counter-supported`；challenge 完成时须引用支持其结论的极性证据，异质挑战的 Unit 必须 verified、属于**产出该 Finding 的 Claim**、method 等于该 Unit 且**不同于**主验证方法、证据只取该 Unit；等价直接反证只引本次新产生的证据；`COMPLETED` 与 `gapReason` 互斥，`GAP` 只留 `gapReason`。`resolutionChallenge` 只用于 `RESOLVED-VERIFIED`、没有 GAP 状态、Unit 同样必须属于产出该 Finding 的 Claim、method 不同于主验证方法、证据必须回写 `resolutionEvidence`。
+**5. 反证**——H 的 `result` 与 `recommendation` 必须闭合配对（`supported → promote-to-finding`；`refuted → close`；`unresolved → promote-to-finding | residual-gap`）；反证成立（`disconfirmationResult="counter-supported"`）的原 H 必须关闭（`result="refuted"`）；`ES3`/`ES4` 证据必须 `repeatable`/`conditional`。Finding 级 `disconfirmation` 与 verification 级 `challenge` 是两次独立检查，不可互替：`CONFIRMED`/`NEEDS-DECISION` 两者都必须是 `counter-refuted`；`CONDITIONAL` 不得是 `counter-supported`；challenge 完成时（`status="COMPLETED"`）须引用支持其结论的极性证据：异质挑战（`mode="HETEROGENEOUS-METHOD"`）的 Unit 必须 verified、属于**产出该 Finding 的 Claim**、method 等于该 Unit 且**不同于**主验证方法、证据只取该 Unit；等价直接反证（`mode="EQUIVALENT-DIRECT-DISCONFIRMATION"`）只引本次新产生的证据，禁止携带 `unitId`；`COMPLETED` 与 `gapReason` 互斥，`GAP` 时只留 `gapReason`，严禁携带 `mode/unitId/method/evidenceRefs/result` 等已完成字段。`resolutionChallenge` 只用于 `RESOLVED-VERIFIED`、没有 GAP 状态、Unit 同样必须属于产出该 Finding 的 Claim、method 不同于主验证方法、证据必须回写 `resolutionEvidence`。
 
 **6. 结论不得强于证据**——Severity 必须落在 Impact 映射允许集合内（见 §6），且写了 `severity` 就必须有可判定的 `risk.impact`（漏写 `risk` 只会报错，不会通过）；偏离 `impact` 必须写 `severityRationale`，未偏离时禁止写；`CONFIRMED` 要求 `High`/`Very-High` 置信度；`REJECTED` 需要本次新产生的 `refutes` 证据且**不得带 `risk`/`severity`/`severityRationale`/`confidence`**（被驳回的风险没有评级）；`PENDING` 同样不得带任何评级；`CONFIRMED`/`NEEDS-DECISION` 需要本次新产生的 `supports` 证据；`RESOLVED-VERIFIED` 需要新的 `refutes` 证据且所有 Gate 为 `DOES-NOT-APPLY`；`FINAL` 不留 `PENDING`。`verified` Unit 必须至少有一条 DIRECT 证据（没有证据的"已验证"什么都没验证），`method=test-discrimination` 的还必须至少一条 `testDiscrimination.result=YES`——"测试通过了"不判别任何假设。`highest`/`high` Claim 必须有对应 discrimination 字段，`FINAL` 必须定稿 `sufficiency`，`normal` 不得写 `sufficiency`；`FINAL` 的 `REQUIRED` Claim 至少有一个 Unit。
 
@@ -654,7 +654,7 @@ Task: 在目标/scope 内自主寻找 material 风险，不受主代理 risk map
 
 **9. 批次新鲜度**——`PASSED` 批次的 `validatedGeneration` 必须等于当前 `generation`、必须有 Evidence、依赖必须已 `PASSED`；依赖图无缺边、无自环、无环；`attempt > 1` 必须写 `transitionReason`，否则禁止写；`PASSED FIX` 批次要求其 Finding 处于 `REMEDIATING` 或已了结，`PASSED VERIFY` 批次要求其 Finding 已了结；`REMEDIATING` 必须有 `FIX` 批次，`RESOLVED-VERIFIED` 必须有引用其 `resolutionEvidence` 的 `PASSED VERIFY` 批次；`FINAL` 时所有批次 `PASSED` 且不留 `REMEDIATING`，最终 REGRESSION 传递依赖所有 `PASSED` 的 FIX/VERIFY。
 
-**10. 覆盖闭合与探索**——`scopeCoverage` 只在 `stop.policy=exhaustive` 出现，此时必须绑定当前 snapshot、declared 非空、completed/excluded 都来自 declared 且互不重叠；未闭合在 `FINAL` 必须挂 material residual，且该 residual 必须影响**每一个**请求的 Gate（覆盖缺口作废的是整个裁决，不是某一个 target）。显式独立验证要求下，`FINAL` 必须有 highest Claim 且达成双执行者、双方法的 ISOLATED 验证。有 `EXPLORATORY` Claim 必须有 `exploration`，反之必须省略；每轮非空、只含 EXPLORATORY Claim 且双向回指；`noMaterialDeltaRounds` 只能在 0–2——连续三轮无 material delta 说明探索早已失去依据。**id 约定**：Claim 始终是 `Q<n>`，即使义务是 `EXPLORATORY`；`X<n>` 属于**探索轮**——写在 Claim 的 `explorationRound` 和 `exploration.rounds[].id` 上，两处必须双向一致。
+**10. 覆盖闭合与探索**——`scopeCoverage` 只在 `stop.policy=exhaustive` 出现，此时必须绑定当前 snapshot，`declaredMembers` 非空，`completedMembers` 与 `excludedMembers` 都来自 declared 且互不重叠，每个排除项必须为 `{member, reason}`；未闭合在 `FINAL` 必须挂 material residual，且该 residual 必须影响**每一个**请求的 Gate（覆盖缺口作废的是整个裁决，不是某一个 target）。显式独立验证要求下，`FINAL` 必须有 highest Claim 且达成双执行者、双方法的 ISOLATED 验证。有 `EXPLORATORY` Claim 必须有 `exploration` 对象，反之必须省略；`exploration` 必须包含 `noMaterialDeltaRounds`（整数，只能在 0–2 之间——连续三轮无 material delta 说明探索早已失去依据）；`rounds[]` 每轮包含 `id`（`X<n>`）、`claimIds`（引用的 EXPLORATORY Claim 列表）与 `materialDelta`（布尔值 `true`/`false`），每轮非空且与 Claim 双向回指。**id 约定**：Claim 始终是 `Q<n>`，即使义务是 `EXPLORATORY`；`X<n>` 属于**探索轮**——写在 Claim 的 `explorationRound` 和 `exploration.rounds[].id` 上，两处必须双向一致。
 
 **11. 风险接受绑定**——`authorization` 必须绑定 `text` + 当前 `auditId` + 完整 `snapshot`（Gate 授权再加 `target`）。**不能跨实例复制**——那等于把别人的签字当成你的。**代理不得自设风险容忍度**：`audit.riskTolerance` 一律禁止。容忍度只有两个合法出口——用户通过 `policies.<target>.blockAtOrAbove` 收紧 Gate 阈值，或某个 Finding 的显式、已授权风险接受。
 
