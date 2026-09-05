@@ -498,42 +498,6 @@ def check_driver_enums_and_keys(a: Audit, r: Report) -> None:
                 guard(f"state.json.findings[{finding_id}].gates[{target}].applicability",
                       gate.get("applicability"), "findings[].gates[].applicability")
 
-    # -- artifacts ---------------------------------------------------------
-    # Both artifact kinds carry `evidence`, and _index_artifact files the
-    # verification evidence into the same polarity / test-discrimination
-    # indexes, so a typo there disables the Finding-level polarity checks too.
-    for label, data in list(a.investigations.items()) + list(a.verifications.items()):
-        for index, item in enumerate(rows(data.get("evidence"))):
-            if not isinstance(item, dict):
-                continue
-            ev_path = f"artifact({label}).evidence[{index}]"
-            for field in ("polarity", "strength", "reproducibility"):
-                guard(f"{ev_path}.{field}", item.get(field), f"evidence[].{field}")
-            discrimination = item.get("testDiscrimination")
-            if isinstance(discrimination, dict):
-                guard(f"{ev_path}.testDiscrimination.result", discrimination.get("result"),
-                      "evidence[].testDiscrimination.result")
-        for index, hyp in enumerate(rows(data.get("hypotheses"))):
-            if not isinstance(hyp, dict):
-                continue
-            hyp_path = f"artifact({label}).hypotheses[{index}]"
-            guard(f"{hyp_path}.result", hyp.get("result"), "investigations().hypotheses[].result")
-            guard(f"{hyp_path}.recommendation", hyp.get("recommendation"),
-                  "investigations().hypotheses[].recommendation")
-            guard(f"{hyp_path}.disconfirmationResult", hyp.get("disconfirmationResult"),
-                  "investigations().hypotheses[].disconfirmationResult")
-    for finding_id, data in a.verifications.items():
-        for block, keys in (
-            ("challenge", ("status", "mode", "result")),
-            ("resolutionChallenge", ("status",)),
-        ):
-            value = data.get(block)
-            if not isinstance(value, dict):
-                continue
-            for key in keys:
-                guard(f"verification({finding_id}).{block}.{key}", value.get(key),
-                      f"verification().{block}.{key}")
-
     # -- fix workflow ------------------------------------------------------
     workflow = a.state.get("fixWorkflow")
     if isinstance(workflow, dict):
@@ -545,6 +509,77 @@ def check_driver_enums_and_keys(a: Audit, r: Report) -> None:
                   "fixWorkflow.batches[].kind")
             guard(f"state.json.fixWorkflow.batches[{batch_id}].status", batch.get("status"),
                   "fixWorkflow.batches[].status")
+    check_artifact_enums(a, r)
+
+
+def enum_guard(r: Report, path: str, value: object, key: str, required: bool = False) -> None:
+    """Checks one driver value against DRIVER_ENUMS.
+
+    `required` additionally rejects omission. Omitting a driver is not a shorter
+    record than misspelling it -- either way the invariant reading that driver
+    never fires, and the error names that instead of passing silently.
+    """
+    allowed = DRIVER_ENUMS[key]
+    if value is None:
+        if required:
+            r.error(path, f"required driver field; omitting it skips every invariant that reads it "
+                          f"(must be one of {sorted(allowed)})")
+        return
+    if not isinstance(value, str):
+        r.error(path, f"{key} must be a string, got {type(value).__name__}")
+        return
+    if value != value.strip():
+        r.error(path, f"{value!r} has surrounding whitespace; the guard comparing it to "
+                      f"{sorted(allowed)} will never match and the invariant is skipped")
+        return
+    if value not in allowed:
+        r.error(path, f"invalid value {value!r}; must be exactly one of {sorted(allowed)}")
+
+
+def check_artifact_enums(a: Audit, r: Report) -> None:
+    """Artifact-side enum closure. Shared by the full audit run and by
+    `audit_init.py check`, so an investigator sees the same failures the
+    lead agent would report at reconciliation time.
+
+    The Evidence and hypothesis fields are required, not merely guarded: a
+    missing `result` or `polarity` never reaches the pairing and polarity
+    invariants, so it drops them instead of failing them.
+    """
+    # Both artifact kinds carry `evidence`, and _index_artifact files the
+    # verification evidence into the same polarity / test-discrimination
+    # indexes, so a typo there disables the Finding-level polarity checks too.
+    for label, data in list(a.investigations.items()) + list(a.verifications.items()):
+        for index, item in enumerate(rows(data.get("evidence"))):
+            if not isinstance(item, dict):
+                continue
+            ev_path = f"artifact({label}).evidence[{index}]"
+            for field in ("polarity", "strength", "reproducibility"):
+                enum_guard(r, f"{ev_path}.{field}", item.get(field), f"evidence[].{field}", required=True)
+            discrimination = item.get("testDiscrimination")
+            if isinstance(discrimination, dict):
+                enum_guard(r, f"{ev_path}.testDiscrimination.result", discrimination.get("result"),
+                           "evidence[].testDiscrimination.result")
+        for index, hyp in enumerate(rows(data.get("hypotheses"))):
+            if not isinstance(hyp, dict):
+                continue
+            hyp_path = f"artifact({label}).hypotheses[{index}]"
+            for field, key in (
+                ("result", "investigations().hypotheses[].result"),
+                ("recommendation", "investigations().hypotheses[].recommendation"),
+                ("disconfirmationResult", "investigations().hypotheses[].disconfirmationResult"),
+            ):
+                enum_guard(r, f"{hyp_path}.{field}", hyp.get(field), key, required=True)
+    for finding_id, data in a.verifications.items():
+        for block, keys in (
+            ("challenge", ("status", "mode", "result")),
+            ("resolutionChallenge", ("status",)),
+        ):
+            value = data.get(block)
+            if not isinstance(value, dict):
+                continue
+            for key in keys:
+                enum_guard(r, f"verification({finding_id}).{block}.{key}", value.get(key),
+                           f"verification().{block}.{key}")
 
 
 def check_identity_and_references(a: Audit, r: Report) -> None:
@@ -885,12 +920,17 @@ def check_evidence_graph(a: Audit, r: Report) -> None:
 # --------------------------------------------------------------------------
 # 5. disconfirmation
 # --------------------------------------------------------------------------
-def check_disconfirmation(a: Audit, r: Report) -> None:
-    # Strength-vs-reproducibility is a property of the Evidence, not of any
-    # hypothesis: it used to sit inside the hypotheses loop, so an artifact
-    # with `hypotheses: []` -- every clean Unit -- skipped it entirely. It is
-    # also checked on verification artifacts, whose `F<n>-E<m>` Evidence feeds
-    # the same polarity and test-discrimination indexes as an investigation.
+def check_artifact_disconfirmation(a: Audit, r: Report) -> None:
+    """Artifact-side disconfirmation closure: strength-vs-reproducibility and
+    hypothesis result/recommendation pairing. Shared by the full audit run and
+    by `audit_init.py check`; needs no state-side context.
+
+    Strength-vs-reproducibility is a property of the Evidence, not of any
+    hypothesis: it used to sit inside the hypotheses loop, so an artifact
+    with `hypotheses: []` -- every clean Unit -- skipped it entirely. It is
+    also checked on verification artifacts, whose `F<n>-E<m>` Evidence feeds
+    the same polarity and test-discrimination indexes as an investigation.
+    """
     for label, data in list(a.investigations.items()) + list(a.verifications.items()):
         for index, item in enumerate(rows(data.get("evidence"))):
             if (isinstance(item, dict) and item.get("strength") in {"ES3", "ES4"}
@@ -914,6 +954,10 @@ def check_disconfirmation(a: Audit, r: Report) -> None:
                 r.error(f"{path}.evidenceRefs", "supported requires at least one supports Evidence")
             if result == "refuted" and not {ref for ref in refs if a.evidence_polarity.get(ref) == "refutes"}:
                 r.error(f"{path}.evidenceRefs", "refuted requires at least one refutes Evidence")
+
+
+def check_disconfirmation(a: Audit, r: Report) -> None:
+    check_artifact_disconfirmation(a, r)
     for finding in a.findings:
         finding_id = finding.get("id")
         severity, decision, disposition = finding.get("severity"), finding.get("decision"), finding.get("disposition")
@@ -1733,6 +1777,48 @@ def validate_audit(root: Path) -> Report:
     return report
 
 
+def validate_investigation(root: Path, rel: str) -> Report:
+    """Pre-flight check of one investigation artifact, run before the lead agent
+    accepts it. Loads state.json only for the binding and dispatch comparison,
+    then applies the same artifact-side enum and disconfirmation checks the full
+    audit run would apply at reconciliation time."""
+    report = Report(str(rel))
+    audit = Audit(root, report)
+    if not audit.load():
+        return report
+    path = root / rel
+    if not path.is_file():
+        report.error(str(path), "investigation artifact is missing")
+        return report
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+        report.error(str(path), f"unreadable: {exc}")
+        return report
+    if not isinstance(data, dict):
+        report.error(str(path), "artifact must be an object")
+        return report
+    unit_id = data.get("unitId")
+    if not isinstance(unit_id, str):
+        report.error(str(path), "unitId must be a string; ownership cannot be checked without it")
+        return report
+    if not audit.unit(unit_id):
+        report.error(f"investigations({unit_id})", "unit id is not declared in "
+                     "state.json.verificationUnits; the artifact claims an obligation the state does not track")
+        return report
+    audit._index_artifact(data, str(path))
+    # Drop what load() indexed so the checks below report on this artifact only.
+    # Reuse check_bindings rather than a single-artifact copy: it is the one that
+    # catches an auditBinding missing a key, which otherwise compares equal to a
+    # null snapshot and passes unchallenged.
+    audit.investigations = {unit_id: data}
+    audit.verifications = {}
+    check_artifact_enums(audit, report)
+    check_artifact_disconfirmation(audit, report)
+    check_bindings(audit, report)
+    return report
+
+
 def emit(report: Report) -> int:
     for line in report.errors:
         print(line)
@@ -1791,11 +1877,17 @@ def main(argv: list | None = None) -> int:
     parser.add_argument("target", nargs="?", help="audit instance directory holding state.json")
     parser.add_argument("--state-root", help="validate the active/archive layout and supersession graph")
     parser.add_argument("--self-test", help="run the fixture suite in this directory")
+    parser.add_argument("--investigation", metavar="REL",
+                        help="pre-flight check one investigations/<file>.json against this audit directory")
     args = parser.parse_args(argv)
     if args.self_test:
         return run_self_test(Path(args.self_test))
     if args.state_root:
         return emit(validate_state_root(Path(args.state_root)))
+    if args.investigation:
+        if not args.target:
+            parser.error("--investigation requires an audit directory")
+        return emit(validate_investigation(Path(args.target), args.investigation))
     if not args.target:
         parser.error("provide an audit directory, --state-root, or --self-test")
     return emit(validate_audit(Path(args.target)))

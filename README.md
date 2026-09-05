@@ -91,7 +91,7 @@ python -B scripts/validate_audit_state.py --self-test scripts/fixtures
 
 validator 通过只证明状态内部一致，不证明代码事实和风险判断正确。
 
-辅助脚手架是 `scripts/audit_init.py`（零第三方依赖，Python 3.9+）：它提供三大骨架生成命令，解决"凭空手写多层嵌套 JSON 容易手滑与快照漂移"的痛点。它自动绑定当前不可变 snapshot，生成带 TODO 的合法骨架；它不接管流程、不生成 Claim、不做事实判断：
+辅助脚手架是 `scripts/audit_init.py`（零第三方依赖，Python 3.9+）：它提供骨架生成与工件预校验四类命令，解决"凭空手写多层嵌套 JSON 容易手滑与快照漂移"的痛点。它自动绑定当前不可变 snapshot，生成带 TODO 的合法骨架；它不接管流程、不生成 Claim、不做事实判断：
 
 ```text
 # 1. 开局：生成 state.json 骨架并建好工作区
@@ -103,10 +103,15 @@ python -B scripts/audit_init.py init --audit-id <ID> --target "<TARGET>" --scope
 python -B scripts/audit_init.py investigation --audit-id <ID> --unit R1 --claim Q1 \
     --method <ARCHETYPE> --executor <EXECUTOR> [--clean]
 
-# 3. 复核：为主代理生成 verification 骨架及第二挑战结构
+# 3. 预校验：调查者写完、主代理接收前，校验单个 investigation 工件
+python -B scripts/audit_init.py check --audit-id <ID> --unit R1 [--executor <EXECUTOR>]
+
+# 4. 复核：为主代理生成 verification 骨架及第二挑战结构
 python -B scripts/audit_init.py verification --audit-id <ID> --finding F1 \
     --method <ARCHETYPE> --checked-evidence R1-E1
 ```
+
+`check` 跑的是 validator 的工件侧检查（枚举闭合、result/recommendation 配对、auditBinding 与派发归属），把归约时才暴露的枚举漂移提前到写完时。它只校验单个工件，不校验 state 的收口义务。
 
 字段形状与真实填空仍可对照 `scripts/fixtures/` 示例；骨架生成后由代理填入实际代码行、观察事实与反证。
 
@@ -154,7 +159,7 @@ python -B scripts/audit_init.py verification --audit-id <ID> --finding F1 \
 | `references/failure-patterns.md` | 风险地图有盲区或需要 Hypothesis seeds（按需） |
 | `references/git-scoping.md` | 涉及复杂 git 范围、变基、提交历史切分（按需） |
 | `references/platform-runtime-patterns.md` | 涉及跨平台（Windows/Linux/macOS）、并发/异步、I/O 模式（按需） |
-| `scripts/audit_init.py` | 脚手架工具：一键生成 state/investigation/verification 合法骨架，Python 3.9+ |
+| `scripts/audit_init.py` | 脚手架工具：一键生成 state/investigation/verification 合法骨架，并预校验单个 investigation 工件，Python 3.9+ |
 | `scripts/validate_audit_state.py` | 可选校验器，Python 3.9+ |
 
 §4 是参考手册、§6 是结论标准，两者都不属于主流程——建风险地图时按需查 §4，定稿判断时按需查 §6，有把握可跳过。必读部分（§1–§3、§5、§7–§8）约 410 行，另有前言 11 行。

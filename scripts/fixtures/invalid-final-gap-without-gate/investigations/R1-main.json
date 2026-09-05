@@ -24,6 +24,7 @@
     {
       "id": "R1-H1",
       "statement": "unbounded memory growth on large inputs",
+      "disconfirmationResult": "unresolved",
       "result": "unresolved",
       "recommendation": "promote-to-finding"
     }

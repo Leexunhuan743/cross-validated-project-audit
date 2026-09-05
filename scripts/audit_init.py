@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Audit artifact scaffolding helper.
 
-Zero third-party dependencies (Python 3.9+ standard library). Provides three core
-scaffolding commands for primary agents and investigators, preventing hand-written
+Zero third-party dependencies (Python 3.9+ standard library). Provides scaffolding
+and pre-flight commands for primary agents and investigators, preventing hand-written
 nested JSON slips, driver enum mismatches, and auditBinding drift:
 
   1. init: create initial state.json skeleton and prepare directory layout
@@ -12,7 +12,11 @@ nested JSON slips, driver enum mismatches, and auditBinding drift:
      python -B scripts/audit_init.py investigation --audit-id <ID> --unit R1 --claim Q1 \
          --method implementation-trace --executor agent-a
 
-  3. verification: scaffold a verification artifact for a Finding and second challenge
+  3. check: pre-flight check one investigation artifact before the lead agent
+     accepts it (same artifact-side checks the validator runs at reconciliation)
+     python -B scripts/audit_init.py check --audit-id <ID> --unit R1 [--executor agent-a]
+
+  4. verification: scaffold a verification artifact for a Finding and second challenge
      python -B scripts/audit_init.py verification --audit-id <ID> --finding F1 \
          --method implementation-trace --checked-evidence R1-E1
 
@@ -352,12 +356,75 @@ def cmd_investigation(args: argparse.Namespace) -> int:
     print("\nnext:")
     print(f"  1. open {rel_target} and fill actual source and observation")
     print(f"  2. place probe / reproduction scripts into probes/{unit_id}-{args.executor}/")
-    print(f"  3. advance Unit to reported in state.json and cite this file")
+    print(f"  3. run: audit_init.py check --audit-id {state['audit']['id']} --unit {unit_id}")
+    print(f"  4. advance Unit to reported in state.json and cite this file")
+    print("\nenums -- misspelling or omitting any of these stops the invariant that reads it:")
+    print("  result ∈ {supported, refuted, unresolved}")
+    print("  recommendation ∈ {promote-to-finding, close, residual-gap}")
+    print("  disconfirmationResult ∈ {counter-refuted, counter-supported, unresolved}")
+    print("  polarity ∈ {supports, refutes, context}")
+    print("  strength ∈ {ES1, ES2, ES3, ES4}")
+    print("  reproducibility ∈ {repeatable, conditional, single-observation, not-applicable}")
+    print(f"  method: keep {method} -- rewriting it voids the heterogeneity check")
     return 0
 
 
 # ---------------------------------------------------------------------------
-# Command 3: verification (scaffold verification artifact)
+# Command 3: check (pre-flight validation of one investigation artifact)
+# ---------------------------------------------------------------------------
+
+def load_validator():
+    """Loads validate_audit_state.py from this script's directory. The pre-flight
+    check and the full audit run must never drift apart, so it imports the same
+    module instead of re-implementing its checks."""
+    import importlib.util
+
+    path = Path(__file__).with_name("validate_audit_state.py")
+    if not path.is_file():
+        raise FileNotFoundError(f"validator not found next to audit_init.py: {path}")
+    spec = importlib.util.spec_from_file_location("validate_audit_state", path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def cmd_check(args: argparse.Namespace) -> int:
+    """Applies the artifact-side enum, disconfirmation and binding checks before
+    the lead agent accepts the artifact, so enum drift surfaces at write time
+    rather than at reconciliation."""
+    try:
+        audit_dir = resolve_audit_dir(args.state_root, args.audit_id, args.audit_dir)
+    except Exception as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
+    if not SAFE_ID.match(args.unit):
+        print(f"error: --unit must match [A-Za-z0-9_-]+ (got {args.unit!r})", file=sys.stderr)
+        return 2
+
+    if args.executor:
+        targets = [f"investigations/{args.unit}-{args.executor}.json"]
+    else:
+        investigations = audit_dir / "investigations"
+        matches = sorted(p.name for p in investigations.glob(f"{args.unit}-*.json")) if investigations.is_dir() else []
+        if not matches:
+            print(f"error: no investigations/{args.unit}-*.json under {audit_dir}", file=sys.stderr)
+            return 2
+        targets = [f"investigations/{name}" for name in matches]
+
+    try:
+        validator = load_validator()
+    except Exception as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
+
+    failed = 0
+    for rel in targets:
+        failed += validator.emit(validator.validate_investigation(Path(audit_dir), rel))
+    return 1 if failed else 0
+
+
+# ---------------------------------------------------------------------------
+# Command 4: verification (scaffold verification artifact)
 # ---------------------------------------------------------------------------
 
 def cmd_verification(args: argparse.Namespace) -> int:
@@ -490,7 +557,16 @@ def build_parser() -> argparse.ArgumentParser:
     inv.add_argument("--force", action="store_true", help="overwrite existing artifact")
     inv.set_defaults(func=cmd_investigation)
 
-    # 3. verification
+    # 3. check
+    chk = sub.add_parser("check", help="pre-flight check an investigation artifact (investigations/<unit>-<executor>.json)")
+    chk.add_argument("--audit-id", help="audit id (searches in .audits/<audit-id>)")
+    chk.add_argument("--audit-dir", help="explicit audit instance directory path")
+    chk.add_argument("--state-root", default=".audits", help="state root, default: .audits")
+    chk.add_argument("--unit", required=True, help="Verification Unit id (e.g. R1)")
+    chk.add_argument("--executor", help="executor identifier; omit to check every artifact for this unit")
+    chk.set_defaults(func=cmd_check)
+
+    # 4. verification
     ver = sub.add_parser("verification", help="scaffold verification artifact (verification/<finding>.json)")
     ver.add_argument("--audit-id", help="audit id (searches in .audits/<audit-id>)")
     ver.add_argument("--audit-dir", help="explicit audit instance directory path")

@@ -343,6 +343,7 @@ CLI、UI、迁移、SDK、计划方案不是额外调度主键，它们只决定
 
 # Direct shared facts
 <ONLY_RELEVANT_SHARED_FACTS>
+（已核实的远端/生产/部署状态事实在此给出并带 `P<n>` id。涉及"本地工件 vs 生产"的 hypothesis 必须标注证据来源域 `local`/`remote`；`remote` 不可核时不写假设——推理进 `reasoning`，缺口记 `coverageSummary.gaps`，由主代理按 §6 落到 Decision/Gate 层。）
 
 # Task context
 - Audit id / target / snapshot: <...>
@@ -363,7 +364,7 @@ CLI、UI、迁移、SDK、计划方案不是额外调度主键，它们只决定
 1. 用指定 method 检查真实实现、公共路径或对应版本权威契约；辅助方法明确标为
    supplemental，不静默换方法。**Claim 的 discriminatingObservation 是起点不是
    边界**——它告诉你从哪里开始看，不限制你能报告什么。
-2. 只把 material、可证伪的怀疑写入 hypotheses。Evidence 必须 DIRECT；推理写
+2. 只把 material、可证伪的怀疑写入 hypotheses。**每条 hypothesis 必须写成"存在缺陷 X"的怀疑句，禁止写成"X 是正确的"肯定句**——肯定句写成的假设无法归约：`refuted` 会反转成"存在缺陷"。Evidence 必须 DIRECT；推理写
    reasoning，不编号成 Evidence。分三档处理你看到的东西：
    - 本 Claim 范围内的 material 怀疑 → 正常建 H；
    - **超出本 Claim 范围的 material 风险 → 同样正常建 H**，并在回报里标注
@@ -398,6 +399,19 @@ CLI、UI、迁移、SDK、计划方案不是额外调度主键，它们只决定
 unitId、claimId、method、hypotheses、evidence、coverageSummary。H/E id 使用 Unit
 前缀并唯一。每条假说的 `result` 与 `recommendation` 严格闭合配对（`supported → promote-to-finding`；`refuted → close`；`unresolved → promote-to-finding|residual-gap`；`disconfirmationResult="counter-supported"` 时必须 `result="refuted"`）。schema 之外不得自造键。优先用环境的原子写入；没有就用同目录 `.tmp` 再
 rename——主代理以"JSON 能完整解析且校验通过"为准，写入中断留下的半截文件按孤儿文件处理。
+
+# 枚举闭合
+写错或漏写以下字段，依赖它的不变量会静默停跑（不报错，只是不再检查）：
+
+- `result` ∈ {supported, refuted, unresolved}
+- `recommendation` ∈ {promote-to-finding, close, residual-gap}
+- `disconfirmationResult` ∈ {counter-refuted, counter-supported, unresolved}
+- `polarity` ∈ {supports, refutes, context}
+- `strength` ∈ {ES1, ES2, ES3, ES4}
+- `reproducibility` ∈ {repeatable, conditional, single-observation, not-applicable}
+- `method`：§4.2 的 7 种 archetype 之一，原样保留派发值。它不是 validator 枚举，但改写会使异质性判据失效。
+
+写完先跑 `audit_init.py check --audit-id <AUDIT_ID> --unit <R_ID>`（见 §8）。
 
 # Return
 只回报（不要把 JSON 正文再贴一遍）：写入路径、H/E id 与一句摘要、
@@ -599,7 +613,7 @@ Task: 在目标/scope 内自主寻找 material 风险，不受主代理 risk map
 
 **`scripts/fixtures/valid-ordinary-no-gate/state.json` 是最小合法形状，`scripts/fixtures/valid-audit-and-fix/` 是含 `fixWorkflow` 的完整形状。照抄起步，不要凭 schema 想象字段名。**
 
-嫌手写嵌套 JSON 容易手滑，可使用脚手架脚本生成合规骨架（`audit_init.py` 支持 `init`、`investigation`、`verification` 三大骨架生成，用法见 §8）。**`--scope-mode` 默认 `change`**，全项目审计必须显式传 `--scope-mode project`——照抄示例不传，会把仓库级审计静默建成变更级。
+嫌手写嵌套 JSON 容易手滑，可使用脚手架脚本生成合规骨架（`audit_init.py` 支持 `init`、`investigation`、`check`、`verification`，用法见 §8）。**`--scope-mode` 默认 `change`**，全项目审计必须显式传 `--scope-mode project`——照抄示例不传，会把仓库级审计静默建成变更级。
 
 写状态最常见的错误不是漏填，而是**把可选字段一起填满**——`patternScope` 尤其典型（没做同类搜索却被填成 `UNKNOWN`，等于没有信息却多一个字段要维护）。可选字段只在真实存在时物化（不变量前提字段反之，漏填即错误且会让依赖它的不变量静默失效）：`gates`、`stop`+`scopeCoverage`、`independentValidationRequiredFor`、`priorContact`、`availableEvidence`、`supersession`/`supersedesAuditId`、`exploration`、`dispatches`、`decisionHistory`、`provenance`、`fixWorkflow`。
 
@@ -644,7 +658,7 @@ Task: 在目标/scope 内自主寻找 material 风险，不受主代理 risk map
 
 **4. 证据图**——`reconciliations[]` 只在 `verified` Unit 出现，与 investigation 的 `hypotheses[]` 一一对应、不重复；每条归约必须带 DIRECT 证据，`FINDING` 至少一条 `supports`、`REFUTED` 至少一条 `refutes`；`findingId` 只在 `FINDING` 出现，`residualRiskId` 只在 `RESIDUAL-GAP` 出现且必须指向 material residual；证据必须来自本 Unit 自己的 investigation；`supportingEvidence` 只引 `supports`，`refutingEvidence`/`resolutionEvidence` 只引 `refutes`，`provenanceEvidence` 只引 `context`（且只在 `provenance` 存在时）；`sourceHypotheses` 与归约为 FINDING 的 H 双向一致；Finding 引用的每个证据都必须落在它的来源或验证链上；`verifiedBehaviors` 是 `{behavior, evidenceRefs}` 对象（裸字符串不可复核）且只引本工件证据。
 
-**5. 反证**——H 的 `result` 与 `recommendation` 必须闭合配对（`supported → promote-to-finding`；`refuted → close`；`unresolved → promote-to-finding | residual-gap`）；反证成立（`disconfirmationResult="counter-supported"`）的原 H 必须关闭（`result="refuted"`）；`ES3`/`ES4` 证据必须 `repeatable`/`conditional`。Finding 级 `disconfirmation` 与 verification 级 `challenge` 是两次独立检查，不可互替：`CONFIRMED`/`NEEDS-DECISION` 两者都必须是 `counter-refuted`；`CONDITIONAL` 不得是 `counter-supported`；challenge 完成时（`status="COMPLETED"`）须引用支持其结论的极性证据：异质挑战（`mode="HETEROGENEOUS-METHOD"`）的 Unit 必须 verified、属于**产出该 Finding 的 Claim**、method 等于该 Unit 且**不同于**主验证方法、证据只取该 Unit；等价直接反证（`mode="EQUIVALENT-DIRECT-DISCONFIRMATION"`）只引本次新产生的证据，禁止携带 `unitId`；`COMPLETED` 与 `gapReason` 互斥，`GAP` 时只留 `gapReason`，严禁携带 `mode/unitId/method/evidenceRefs/result` 等已完成字段。`resolutionChallenge` 只用于 `RESOLVED-VERIFIED`、没有 GAP 状态、Unit 同样必须属于产出该 Finding 的 Claim、method 不同于主验证方法、证据必须回写 `resolutionEvidence`。
+**5. 反证**——H 的 `result` 与 `recommendation` 必须闭合配对（`supported → promote-to-finding`；`refuted → close`；`unresolved → promote-to-finding | residual-gap`）；反证成立（`disconfirmationResult="counter-supported"`）的原 H 必须关闭（`result="refuted"`）；`ES3`/`ES4` 证据必须 `repeatable`/`conditional`。Finding 级 `disconfirmation` 与 verification 级 `challenge` 是两次独立检查，不可互替：`CONFIRMED`/`NEEDS-DECISION` 两者都必须是 `counter-refuted`；`CONDITIONAL` 不得是 `counter-supported`；challenge 完成时（`status="COMPLETED"`）须引用支持其结论的极性证据：异质挑战（`mode="HETEROGENEOUS-METHOD"`）的 Unit 必须 verified、属于**产出该 Finding 的 Claim**、method 等于该 Unit 且**不同于**主验证方法、证据只取该 Unit；等价直接反证（`mode="EQUIVALENT-DIRECT-DISCONFIRMATION"`）只引本次新产生的证据，禁止携带 `unitId`；`COMPLETED` 与 `gapReason` 互斥，`GAP` 时只留 `gapReason`，严禁携带 `mode/unitId/method/evidenceRefs/result` 等已完成字段。`resolutionChallenge` 只用于 `RESOLVED-VERIFIED`、没有 GAP 状态、Unit 同样必须属于产出该 Finding 的 Claim、method 不同于主验证方法、证据必须回写 `resolutionEvidence`。非 Critical/High 的 Finding 不物化 `challenge`——一旦物化，validator 就会检查其证据极性与 Unit 归属，低严重度加它只增加约束，不增加结论强度。
 
 **6. 结论不得强于证据**——Severity 必须落在 Impact 映射允许集合内（见 §6），且写了 `severity` 就必须有可判定的 `risk.impact`（漏写 `risk` 只会报错，不会通过）；偏离 `impact` 必须写 `severityRationale`，未偏离时禁止写；`CONFIRMED` 要求 `High`/`Very-High` 置信度；`REJECTED` 需要本次新产生的 `refutes` 证据且**不得带 `risk`/`severity`/`severityRationale`/`confidence`**（被驳回的风险没有评级）；`PENDING` 同样不得带任何评级；`CONFIRMED`/`NEEDS-DECISION` 需要本次新产生的 `supports` 证据；`RESOLVED-VERIFIED` 需要新的 `refutes` 证据且所有 Gate 为 `DOES-NOT-APPLY`；`FINAL` 不留 `PENDING`。`verified` Unit 必须至少有一条 DIRECT 证据（没有证据的"已验证"什么都没验证），`method=test-discrimination` 的还必须至少一条 `testDiscrimination.result=YES`——"测试通过了"不判别任何假设。`highest`/`high` Claim 必须有对应 discrimination 字段，`FINAL` 必须定稿 `sufficiency`，`normal` 不得写 `sufficiency`；`FINAL` 的 `REQUIRED` Claim 至少有一个 Unit。
 
@@ -725,6 +739,8 @@ Task: 在目标/scope 内自主寻找 material 风险，不受主代理 risk map
 探针未验证生效的运行，最多是 `UNKNOWN` 判别力，不能因为"跑过了"升级。
 
 ### Severity
+
+`risk.impact` 取值是严重度级别 `Critical`/`High`/`Medium`/`Low`，不是影响类型描述词；影响类型写在 `statement`/`causeImpact`。
 
 由 `risk.impact` 定基线，**只允许两种相邻修正**：`likelihood=Low` 且（`reachability=Privileged` 或 `recoverability=Automatic`）可降一级；`likelihood=High` + `reachability=Common` + `recoverability=Irreversible` 可升一级（最高 `Critical`）。`severity` 与 `impact` 不等时必须写 `severityRationale`，相等时禁止写。
 
@@ -835,6 +851,11 @@ python -B <skill-root>/scripts/audit_init.py init --audit-id <ID> --target "<TAR
 python -B <skill-root>/scripts/audit_init.py investigation --audit-id <ID> --unit R1 --claim Q1 \
     --method <ARCHETYPE> --executor <EXECUTOR>
 
+# 调查者写完、主代理接收前：预校验单个 investigation 工件
+python -B <skill-root>/scripts/audit_init.py check --audit-id <ID> --unit R1 [--executor <EXECUTOR>]
+python -B <skill-root>/scripts/validate_audit_state.py .audits/<auditId> \
+    --investigation investigations/R1-<EXECUTOR>.json
+
 # 复核：为 Finding 生成 verification 骨架与第二挑战
 python -B <skill-root>/scripts/audit_init.py verification --audit-id <ID> --finding F1 \
     --method <ARCHETYPE> --checked-evidence R1-E1
@@ -845,7 +866,9 @@ python -B <skill-root>/scripts/validate_audit_state.py --state-root .audits   # 
 python -B <skill-root>/scripts/validate_audit_state.py --self-test <skill-root>/scripts/fixtures  # 校验 validator 本身
 ```
 
-`audit_init.py` 同样是零依赖标准库（3.9+），提供 `init`、`investigation`、`verification` 三大骨架生成能力。它自动绑定当前 state.json 的 snapshot 与 auditId 并创建配套工作区，不接管流程、不生成 Claim、不做任何事实判断——骨架对了，剩下的实质观察、证据与反证仍由代理负责。
+`check` 与 `--investigation` 跑的是同一套工件侧检查（枚举闭合、result/recommendation 配对、auditBinding 与派发归属），把归约时才暴露的枚举漂移提前到调查者写完时。它只校验单个工件，不校验 state 的收口义务。
+
+`audit_init.py` 同样是零依赖标准库（3.9+），提供 `init`、`investigation`、`check`、`verification` 四种能力。它自动绑定当前 state.json 的 snapshot 与 auditId 并创建配套工作区，不接管流程、不生成 Claim、不做任何事实判断——骨架对了，剩下的实质观察、证据与反证仍由代理负责。
 
 **validator 只查 §5 的十二类不变量，不做表单校验**（字段形状以 `valid-*` fixture 为准；漏写未建模键会静默跳过，但驱动值拼错会硬报错以防不变量停跑）。
 
