@@ -5,14 +5,28 @@
     "id": "fix-001",
     "target": "fixed parser snapshot",
     "scope": "parser overflow finding F1",
-    "snapshot": {"kind": "other", "identity": "fixed-parser-snapshot-2026-08-22"},
-    "objectives": ["verify the original finding is no longer applicable"],
-    "availableEvidence": ["source", "regression test"],
+    "snapshot": {
+      "kind": "other",
+      "identity": "fixed-parser-snapshot-2026-08-22"
+    },
+    "objectives": [
+      "verify the original finding is no longer applicable"
+    ],
+    "availableEvidence": [
+      "source",
+      "regression test"
+    ],
     "deliverable": "fix verification report",
     "scopeMode": "change",
-    "objectiveProfiles": ["general", "fix-verification"],
+    "objectiveProfiles": [
+      "general",
+      "fix-verification"
+    ],
     "executionMode": "audit-only",
-    "scopeResolution": {"basis": "USER", "confidence": "HIGH"},
+    "scopeResolution": {
+      "basis": "USER",
+      "confidence": "HIGH"
+    },
     "startedAt": "2026-08-22T00:00:00Z",
     "updatedAt": "2026-08-22T00:15:00Z"
   },
@@ -42,7 +56,14 @@
       "status": "verified",
       "investigationFile": "investigations/R1-main.json",
       "reconciliations": [
-        {"hypothesisId": "R1-H1", "result": "FINDING", "findingId": "F1", "evidenceRefs": ["R1-E1"]}
+        {
+          "hypothesisId": "R1-H1",
+          "result": "FINDING",
+          "findingId": "F1",
+          "evidenceRefs": [
+            "R1-E1"
+          ]
+        }
       ]
     },
     {
@@ -54,20 +75,40 @@
       "isolation": "ISOLATED",
       "investigationFile": "investigations/R2-independent.json",
       "reconciliations": [
-        {"hypothesisId": "R2-H1", "result": "REFUTED", "evidenceRefs": ["R2-E1"]}
-      ]
+        {
+          "hypothesisId": "R2-H1",
+          "result": "REFUTED",
+          "evidenceRefs": [
+            "R2-E1"
+          ]
+        }
+      ],
+      "dispatchProof": {
+        "type": "subagent-task",
+        "jobId": "scout-independent",
+        "agentType": "scout"
+      }
     }
   ],
   "findings": [
     {
       "id": "F1",
       "statement": "the original parser overflow existed in the pre-fix snapshot",
-      "locations": ["src/parser.c:90"],
+      "locations": [
+        "src/parser.c:90"
+      ],
       "causeImpact": "unchecked length allowed a buffer overflow",
       "conditions": "oversized input in the pre-fix snapshot",
-      "sourceHypotheses": ["R1-H1"],
-      "supportingEvidence": ["R1-E1", "F1-E2"],
-      "refutingEvidence": ["F1-E1"],
+      "sourceHypotheses": [
+        "R1-H1"
+      ],
+      "supportingEvidence": [
+        "R1-E1",
+        "F1-E2"
+      ],
+      "refutingEvidence": [
+        "F1-E1"
+      ],
       "disconfirmation": {
         "counterHypothesis": "the old caller bounded the length",
         "evidenceSearched": "pre-fix caller and length check",
@@ -85,7 +126,10 @@
       "verificationMethod": "test-discrimination",
       "patternScope": "ISOLATED",
       "disposition": "RESOLVED-VERIFIED",
-      "resolutionEvidence": ["F1-E1", "R2-E1"],
+      "resolutionEvidence": [
+        "F1-E1",
+        "R2-E1"
+      ],
       "verificationFile": "verification/F1.json",
       "exitCriteria": "the prior failing input is rejected and the regression distinguishes the pre-fix behavior"
     }

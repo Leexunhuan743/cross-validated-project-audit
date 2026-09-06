@@ -515,6 +515,34 @@ def check_driver_enums_and_keys(a: Audit, r: Report) -> None:
             guard(f"state.json.fixWorkflow.batches[{batch_id}].status", batch.get("status"),
                   "fixWorkflow.batches[].status")
     check_artifact_enums(a, r)
+    check_artifact_observation(a, r)
+
+
+# Keys an investigator may reach for in place of `observation` whose content
+# could be either a directly observed fact or an analysis of one. `target` and
+# `location` are not in this set: they can only mean where to look, so renaming
+# them to `source` carries no interpretation.
+AMBIGUOUS_EVIDENCE_KEYS = ("description", "details", "summary", "comment", "note", "notes",
+                           "analysis", "remarks")
+
+
+def check_artifact_observation(a: Audit, r: Report) -> None:
+    """An Evidence that substitutes an ambiguous key for `observation` has not
+    recorded a fact. Renaming it mechanically files an analysis as the
+    observation it comments on, which is exactly the reclassification the
+    protocol forbids -- so it is rejected instead, naming the split the
+    investigator has to make.
+    """
+    for label, data in list(a.investigations.items()) + list(a.verifications.items()):
+        for index, item in enumerate(rows(data.get("evidence"))):
+            if not isinstance(item, dict) or "observation" in item:
+                continue
+            found = [k for k in AMBIGUOUS_EVIDENCE_KEYS if k in item]
+            if found:
+                r.error(f"artifact({label}).evidence[{index}]",
+                        f"carries {', '.join(found)} with no `observation`; whether that content is a "
+                        "directly observed fact or an analysis of one cannot be decided mechanically -- "
+                        "put what was observed in `observation` and the analysis in `reasoning`")
 
 
 def enum_guard(r: Report, path: str, value: object, key: str, required: bool = False) -> None:
@@ -1271,6 +1299,8 @@ def check_conclusions(a: Audit, r: Report) -> None:
 
 # --------------------------------------------------------------------------
 # 11. risk-acceptance binding
+#     Called from the finding-gate check below, so it is defined out of
+#     numeric order: both the per-target and the audit-wide form go through it.
 # --------------------------------------------------------------------------
 def check_authorization(a: Audit, r: Report, value: dict, path: str, treatment: object, target: object) -> None:
     """A risk acceptance is bound to one audit instance, snapshot and Gate."""
@@ -1716,6 +1746,53 @@ def check_exploration(a: Audit, r: Report) -> None:
 # --------------------------------------------------------------------------
 # supersession graph (--state-root)
 # --------------------------------------------------------------------------
+# 12. dispatch provenance
+# --------------------------------------------------------------------------
+def check_dispatch_proof(a: Audit, r: Report) -> None:
+    """Requires every Unit that claims isolation to say how it was dispatched.
+
+    This does not make forgery impossible -- the lead agent writes the proof and
+    could invent a jobId. What it removes is the cheaper failure: a Unit marked
+    ISOLATED with nothing on record, where "independent" is asserted and never
+    distinguished from "written at the same desk". Declaring the dispatch mode
+    is now required, and `single-agent-inline` cannot carry ISOLATED, so the
+    honest downgrade is the only way through without a real dispatch.
+    """
+    jobs: dict[str, str] = {}
+    for unit in rows(a.state.get("verificationUnits")):
+        if not isinstance(unit, dict):
+            continue
+        unit_id = unit.get("id")
+        path = f"state.json.verificationUnits[{unit_id}].dispatchProof"
+        proof = unit.get("dispatchProof")
+        isolated = unit.get("isolation") == "ISOLATED"
+        if proof is None:
+            if isolated:
+                r.error(path, "required when isolation=ISOLATED: name how this Unit was dispatched "
+                              "(type=subagent-task with a jobId, or type=single-agent-inline, "
+                              "which requires isolation=NOT-ISOLATED)")
+            continue
+        if not isinstance(proof, dict):
+            r.error(path, "must be an object {type, jobId}")
+            continue
+        kind = proof.get("type")
+        if kind not in {"subagent-task", "single-agent-inline"}:
+            r.error(f"{path}.type", "must be 'subagent-task' or 'single-agent-inline'")
+            continue
+        if kind == "single-agent-inline":
+            if isolated:
+                r.error(f"{path}.type", "single-agent-inline cannot claim ISOLATED; "
+                                        "set isolation=NOT-ISOLATED or record a real dispatch")
+            continue
+        job = proof.get("jobId")
+        if not (isinstance(job, str) and job.strip()):
+            r.error(f"{path}.jobId", "required for type=subagent-task")
+        elif job in jobs:
+            r.error(f"{path}.jobId", f"already used by Unit {jobs[job]!r}; one job cannot be two "
+                                     "independent executions")
+        else:
+            jobs[job] = str(unit_id)
+
 def validate_state_root(root: Path) -> Report:
     report = Report(str(root))
     if not root.is_dir():
@@ -1782,6 +1859,7 @@ def validate_audit(root: Path) -> Report:
     check_fix_workflow(audit, report)
     check_coverage(audit, report)
     check_exploration(audit, report)
+    check_dispatch_proof(audit, report)
     return report
 
 
@@ -1821,6 +1899,7 @@ def validate_investigation(root: Path, rel: str) -> Report:
     audit.investigations = {unit_id: data}
     audit.verifications = {}
     check_artifact_enums(audit, report)
+    check_artifact_observation(audit, report)
     check_artifact_disconfirmation(audit, report)
     check_bindings(audit, report)
     return report

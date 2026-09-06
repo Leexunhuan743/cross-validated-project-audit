@@ -100,19 +100,25 @@ Deliverable: 合并门禁裁决 + 阻断清单
 严格按 **Risk claim → verification method → executor** 落地到 `state.json`：
 
 - `claims[]` 每个风险主张只写一次（稳定 `Q<n>` 可判定陈述、失败后果、优先级、有界范围）。`REQUIRED` = 完成任务契约或收口 material gap 所必需；义务外探索才是 `EXPLORATORY`。只有影响实际 Gate 时写 `gateTargets`。
-- `verificationUnits[]` 每种方法一个 `R<n>`，引用 `claimId`，不复制主张内容。最后才选执行者。Unit 具备四态完整生命周期：`status="planned"`（已在 state 规划但未派发）、`"pending"`（已向调查者派发等待回报）、`"reported"`（已收到调查工件并核对）、`"verified"`（主代理复核归约通过）。
+- `verificationUnits[]` 每种方法一个 `R<n>`，引用 `claimId`，不复制主张内容。最后才选执行者。Unit 具备四态完整生命周期：`status="planned"`（已在 state 规划但未派发）、`"pending"`（已向调查者派发等待回报）、`"reported"`（已收到调查工件并核对）、`"verified"`（主代理复核归约通过）。**标 `isolation="ISOLATED"` 的 Unit 必须物化 `dispatchProof`**：真实派发写 `{"type": "subagent-task", "jobId": "<派发任务 id>"}`，同一 `jobId` 不得被两个 Unit 共用；未真实派发、由主代理就地完成时写 `{"type": "single-agent-inline"}`，此时 `isolation` 必须是 `NOT-ISOLATED`（§5 不变量 12）。派发时登记：`audit_init.py dispatch --dispatch-job <JOB_ID>`（只读执行者）/ `investigation --dispatch-job <JOB_ID>`（可写执行者），或 `--inline`。漏登记时可在 `ingest` 上补记，但 `dispatchedAt` 会变成回报时刻。
 - `highest` 主张先写 `safePrediction`、`failurePrediction`、`discriminatingObservation`、`sufficiencyCriterion` 四项，并至少用两个不同 method；`high` 只写后两项。`normal` 不要求。
 - 没有明确独立验证硬要求时，优先把最高风险的异质单元交给不同隔离执行者；并行失败时退化为串行是合法降级，但不豁免隔离评估。
 - **单 Agent 执行时的规程**：在当前环境未配置真正隔离的多个执行者时，**禁止把同一个执行者写成两个不同的 `executor` 字符串冒充独立验证**。保留方法异质性（不同 `method`），如实标 `isolation=NOT-ISOLATED`，并在报告的 Residual uncertainty 中披露"未达成物理隔离的独立双人审计"。
 
 调查者任务必须有明确边界、指定方法、允许检查、唯一 investigation 接收路径和截止条件（可用 `audit_init.py investigation --unit <R_ID> --claim <Q_ID> --method <ARCHETYPE> --executor <EXECUTOR>` 一键原子生成带 `auditBinding` 的合规骨架与隔离目录）。
 
+**派发**：用 `audit_init.py dispatch --unit <R_ID>` 生成自包含 prompt（内嵌完整工件形状与全部枚举），按需裁掉无关 shared facts 后发出。只说"去看什么"的 prompt 会让子代理按自己的习惯组织字段——漏掉驱动枚举，或自造取值（如 `result: "PARTIAL-FINDING"`）。这类漂移要到归约才暴露，而那时调查预算已经花掉。
+
 **落盘方式按执行者的写权限分两类**：
 
 - **可写执行者**——直接写 `investigations/<R_ID>-<EXECUTOR>.json`，写完回报路径与一句摘要。
 - **只读执行者**（harness 剥离了写工具的探针型 agent）——不要求它写盘。它按骨架形状回报完整 JSON，主代理用 `audit_init.py ingest --unit <R_ID> --executor <EXECUTOR> --file <PATH>|-` 落盘。**不要**让只读执行者把 JSON 塞进回报正文再手工转录：长工件会在补全上限处截断，多层内嵌会让正则转义在反序列化时失真。
 
-`ingest` 落盘前先跑 §8 的工件侧校验，不通过则不落盘并保留原有文件。主代理接收时核对归属与内容，在 `state.json.verificationUnits[]` 写入 `"investigationFile": "investigations/<R_ID>-<EXECUTOR>.json"`，再把 Unit 置为 `reported`。
+`ingest` 先剥离宿主外壳（Markdown 代码块或 `{"report": "<json>"}` 一类封装），再做**仅限形式**的归一——补 H/E id 的 Unit 前缀并同步其引用、把同义字段名（`target`/`location`→`source` 一类，只收不可能有第二种含义的）改回规范键名，逐条记进工件的 `normalized` 字段。它不代填任何语义判断：`result`/`recommendation` 缺失、取值自造、证据极性冲突，一律不落盘并输出一段可直接转发的驳回文本。
+
+`description`、`summary`、`comment` 这类键**不归一代填**——它们可能是直接观察到的事实，也可能是对事实的分析，机械改名等于把分析当观察归档。证据带这类键却没有 `observation` 时一律拒收，报错指明拆分方式：观察到的事实写 `observation`，分析写 `reasoning`。已有 `observation` 时这些键只是附带的评注，不影响落盘。
+
+落盘前跑 §8 的工件侧校验，不通过则保留原有文件。主代理接收时核对归属与内容，在 `state.json.verificationUnits[]` 写入 `"investigationFile": "investigations/<R_ID>-<EXECUTOR>.json"`，再把 Unit 置为 `reported`。
 
 **隔离边界：被审计目标树只读，审计工作区可写但分片**。调查者工作区分三区，均在 `.audits/<auditId>/` 下且按 unit + executor 分片（配合禁区与目标树权限如下）：
 
@@ -188,7 +194,7 @@ audit-only 首次运行可把 `.audits/` 单条追加到 `.git/info/exclude`（�
 
 1. 合并同一逻辑问题为一个 Finding，必须有现实影响链、触发条件、H/E 引用、可判定退出条件。
 2. **亲自复核决定性证据**并写 `verification/F<n>.json`（可用 `audit_init.py verification --finding F<n> --method <ARCHETYPE> --checked-evidence <E_ID>` 生成骨架）：不能只转述调查者结论。`checkedEvidence` 只引用该 Finding 的 investigation 链；新产生的 `F<n>-E<m>` 必须回写到 Finding 的某个 evidence 字段；在 `state.json.findings[]` 显式写入 `"verificationFile": "verification/F<n>.json"`。
-3. **归约 Unit 并落盘**：复核通过的 Unit，在 `state.json.verificationUnits[]` 里从 `reported` 推进到 `verified`，并写入与该 Unit `hypotheses[]` 一一对应的 `reconciliations[]`——每项为 `{hypothesisId, result, evidenceRefs, [findingId], [residualRiskId]}`，其中 `result` 严格使用全大写 `"FINDING"` / `"REFUTED"` / `"RESIDUAL-GAP"` 并绑定 DIRECT 证据（`FINDING` 至少一条 `supports`、`REFUTED` 至少一条 `refutes`、`RESIDUAL-GAP` 指向 `material=true` 的 `G<n>`）。机械映射部分用 `audit_init.py scaffold-reconciliations --audit-id <ID>` 生成草稿（按 H 的 `result` 配对同极性 Evidence），草稿的 `findingId`/`residualRiskId` 是 `TODO-F<n>`/`TODO-G<n>` 占位符，会被 validator 判为悬空引用——这是刻意的，主代理必须替换成真实 id 才算完成裁决。**停在 `reported` 不推进不会报错，但会让相关 Gate 因"REQUIRED Unit 未全部 verified"推导为 `INCOMPLETE`**——不变量 4/6 只在 `verified` 上跑，漏推进等于把缺口藏起来。
+3. **归约 Unit 并落盘**：复核通过的 Unit，在 `state.json.verificationUnits[]` 里从 `reported` 推进到 `verified`，并写入与该 Unit `hypotheses[]` 一一对应的 `reconciliations[]`——每项为 `{hypothesisId, result, evidenceRefs, [findingId], [residualRiskId]}`，其中 `result` 严格使用全大写 `"FINDING"` / `"REFUTED"` / `"RESIDUAL-GAP"` 并绑定 DIRECT 证据（`FINDING` 至少一条 `supports`、`REFUTED` 至少一条 `refutes`、`RESIDUAL-GAP` 指向 `material=true` 的 `G<n>`）。机械映射部分用 `audit_init.py scaffold-reconciliations --audit-id <ID>` 生成草稿（`supported` 只取 `supports` 证据、`refuted` 只取 `refutes` 证据，`unresolved` 没有极性要求所以保留全部引用），草稿的 `findingId`/`residualRiskId` 是 `TODO-F<n>`/`TODO-G<n>` 占位符，会被 validator 判为悬空引用——这是刻意的，主代理必须替换成真实 id 才算完成裁决。**停在 `reported` 不推进不会报错，但会让相关 Gate 因"REQUIRED Unit 未全部 verified"推导为 `INCOMPLETE`**——不变量 4/6 只在 `verified` 上跑，漏推进等于把缺口藏起来。
 4. 支持与反证冲突时，定位**最小分歧前提**（双方真正分歧的那个事实），用新的判别性 DIRECT Evidence 裁决，**不按票数**。Finding 形成前写在 investigation 的 reasoning/disconfirmation，已形成则写在 `verification/F<n>.json` 并引用双方 Evidence id——**不新增平行 live 字段**。保留并解释冲突证据，目标环境可重复反证通常高于本地模拟。
 5. Severity 为 Critical/High 且 Decision ∈ `CONFIRMED`/`CONDITIONAL`/`NEEDS-DECISION` 的 Finding 必须记录第二挑战（`challenge`）。完成时 `status="COMPLETED"`，模式二选一：`mode="HETEROGENEOUS-METHOD"`（异质方法挑战，必须有 `unitId`、`method`、`evidenceRefs`）或 `mode="EQUIVALENT-DIRECT-DISCONFIRMATION"`（等价直接反证，引新证据，禁止带 `unitId`）；无法完成时用 `CONDITIONAL` + `challenge.status="GAP"`（此时只留 `gapReason`，严禁携带 `mode/unitId/method/evidenceRefs/result` 等已完成字段）并传播缺口。
 6. 修复验证用 `resolutionChallenge`（判"当前快照风险是否已消失"），**不能拿"问题过去成立"的 challenge 顶替**；它没有 GAP 状态。
@@ -266,6 +272,7 @@ audit-only 首次运行可把 `.audits/` 单条追加到 `.git/info/exclude`（�
 - 残留风险：`G1 <描述>`（material=true）
 - 未覆盖/排除范围及原因
 - 验证局限：<未复跑的探针、单 Agent 环境等>
+- 漫游转化率（启用 §4.8 时）：N = M + K + U（候选总数 / 确认 material 风险 / 确认安全已关闭 / 环境缺失未决）
 ```
 
 ### 报告与接收的三条硬约束
@@ -338,6 +345,8 @@ CLI、UI、迁移、SDK、计划方案不是额外调度主键，它们只决定
 
 每个 Unit 实例化一次。`<...>` 占位符必须全部替换，确实不适用的可选内容按 schema 省略，不把占位符原样派发。
 
+模板中已能机械确定的部分（Unit/Claim/method、snapshot、工作区路径、discrimination、工件形状与全部枚举）由 `audit_init.py dispatch --unit <R_ID>` 自动填好并输出，主代理只需补上只有自己能判断的槽位并裁掉无关 shared facts。discrimination 按 Claim 现况渲染：`highest`/`high` 列出对应字段名（已填的照抄、未填的留 `<TODO>`），`normal` 写"无额外计划"，`EXPLORATORY` 写"不提供"（§4.8 的唯一例外）。下面的完整文本说明每一段在约束什么。
+
 ```text
 你是只读调查者，只负责一个有界 Verification Unit。
 
@@ -407,7 +416,7 @@ CLI、UI、迁移、SDK、计划方案不是额外调度主键，它们只决定
 evidence、coverageSummary。H/E id 使用 Unit 前缀并唯一。每条假说的 `result` 与
 `recommendation` 严格闭合配对（`supported → promote-to-finding`；`refuted → close`；
 `unresolved → promote-to-finding|residual-gap`；`disconfirmationResult="counter-supported"`
-时必须 `result="refuted"`）。schema 之外不得自造键。
+时必须 `result="refuted"`）。schema 之外不得自造键（唯一例外是 `normalized`——它由 `ingest` 在形式归一后写入，不是调查者填的）。
 
 **怎么交付由你的写权限决定**：
 
@@ -540,7 +549,7 @@ Affected assumption: <当前 Unit 如何依赖它>
 
 再把它登记进 `exploration.rounds`（`EXPLORATORY` Claim 与 `exploration` 必须双向存在，见 §5 不变量 10）。这条 Claim 的 statement 刻意写成"不存在未声明风险"这样的整体断言，它不指向任何具体位置，**作用只是给漫游单元一个合法的义务锚点**。
 
-**派发模板**：
+**派发模板**：同样用 `audit_init.py dispatch --unit <R_ID>` 生成——它识别 `EXPLORATORY` Claim 并自动把 Discrimination 渲染成"不提供"。下面说明它与常规派发的差别：
 
 ```text
 Unit: <R_ID>    Claim: <宽 EXPLORATORY Claim，仅作义务锚点>
@@ -578,17 +587,31 @@ Task: 在目标/scope 内自主寻找 material 风险，不受主代理 risk map
 
 ```text
 阶段一 · 漫游（挂宽 EXPLORATORY Claim）
-   ↓ 报告候选怀疑 → 归约为 RESIDUAL-GAP，挂到 material residual
-阶段二 · 确认（新建 REQUIRED Claim）
+   ↓ 报告候选怀疑 → 按排查结论分流：
+     确认安全 → REFUTED（关闭，不进 residual）
+     发现风险 / 排查受阻 → RESIDUAL-GAP，挂到 material residual
+     不达 material → coverageSummary
+阶段二 · 确认（仅 RESIDUAL-GAP 走这里；新建 REQUIRED Claim）
    ↓ 派新 Unit：不同 method + 优先不同 executor
    ↓ 自己取 DIRECT Evidence、做 disconfirmation
    ↓ 走完整 H→F 流程（Critical/High 还要第二挑战）
    → 形成 Finding
 ```
 
-**阶段一：候选归约为 `RESIDUAL-GAP`，不是 `FINDING`。**
+**阶段一：候选按排查结论分流，一律不定案为 `FINDING`。**
 
-漫游单元挂在 `EXPLORATORY` Claim 上，而 EXPLORATORY Claim 不要求 discrimination 计划——没有判别标准就谈不上验证。它发现的 material 风险只能归约为 `RESIDUAL-GAP` 并挂到 `material=true` 的 residual 上：`RESIDUAL-GAP` 表示"这里可能有东西，但本次未闭合"，正好匹配候选状态；硬写成 `FINDING` 会制造证据基础薄弱的结论。
+漫游单元挂在 `EXPLORATORY` Claim 上，而 EXPLORATORY Claim 不要求 discrimination 计划——没有判别标准就谈不上验证，任何候选都不允许直接定案。
+
+| 排查结论 | 假说 | 归约 | 落点 |
+|---|---|---|---|
+| 发现 material 风险（未闭合） | `unresolved` / `residual-gap` | `RESIDUAL-GAP` | `material=true` 的 `G<n>`，转阶段二定案 |
+| 排查后确认安全（排除项） | `refuted` / `close` + `refutes` 证据 | `REFUTED` | 不进 residual |
+| 排查受阻、环境缺失 | `unresolved` / `residual-gap` | `RESIDUAL-GAP` | `material=true` 的 `G<n>`，residual 描述与报告写明环境限制 |
+| 不达 material 的观察 | 不建 H | — | `coverageSummary` |
+
+"查过了、确认安全"是阴性结论，不是缺口——把它挂进 `G<n>` 会让已排除的方向继续计入残留风险，转化率分母虚高。`refuted` 要求的那条 `refutes` 证据，作用正是证明该方向被实际扫过。
+
+环境缺失没有"非 material 的 `RESIDUAL-GAP`"这个出口：不变量 4 要求 material 假说的 `RESIDUAL-GAP` 必须指向 `material=true` 的 residual。环境缺失若使风险不再 material，就不建 H，写 `coverageSummary.gaps` 并在报告披露。
 
 **候选 residual 不要标 `affectsGates`**——阶段一还没定案，让它影响 Gate 是拿未证实的东西阻断放行。省略 `affectsGates` 即表示"仅披露、不参与任何 Gate"（§5），它仍然可见、可追溯，只是不阻断。
 
@@ -606,7 +629,7 @@ Task: 在目标/scope 内自主寻找 material 风险，不受主代理 risk map
 
 **漫游证据的正确定位**：它是"为什么我要查这里"的理由，不是"这个问题成立"的证据。原始 H/E 保留在漫游 investigation 文件里供追溯，但不进入新 Finding 的证据链。
 
-**转化率应披露**：在报告的 Residual uncertainty 里写清漫游单元报告 N 条候选、M 条经确认成立、K 条经确认不成立；M/N 持续偏低说明派发条件没选对，下次应少派或不派。
+**转化率应披露**：在报告的 Residual uncertainty 里按 `N = M + K + U` 公布——N 候选总数、M 确认 material 风险（转入 `G<n>`）、K 确认安全已关闭（`REFUTED`）、U 环境缺失未决。M/N 持续偏低说明派发条件没选对，下次应少派或不派。
 
 漫游不提高可证伪性、只提高覆盖面，不计入 clean conclusion 的支撑，也不替代风险面自检；每个被确认的发现要付两次派发成本，因此个数限定为 1–2 个。
 
@@ -628,7 +651,7 @@ Task: 在目标/scope 内自主寻找 material 风险，不受主代理 risk map
 
 **`scripts/fixtures/valid-ordinary-no-gate/state.json` 是最小合法形状，`scripts/fixtures/valid-audit-and-fix/` 是含 `fixWorkflow` 的完整形状。照抄起步，不要凭 schema 想象字段名。**
 
-嫌手写嵌套 JSON 容易手滑，可使用脚手架脚本生成合规骨架与归约草稿（`audit_init.py` 支持 `init`、`investigation`、`ingest`、`check`、`scaffold-reconciliations`、`sync-snapshot`、`verification`，用法见 §8）。**`--scope-mode` 默认 `change`**，全项目审计必须显式传 `--scope-mode project`——照抄示例不传，会把仓库级审计静默建成变更级。
+嫌手写嵌套 JSON 容易手滑，可使用脚手架脚本生成合规骨架与归约草稿（`audit_init.py` 支持 `init`、`investigation`、`dispatch`、`ingest`、`check`、`scaffold-reconciliations`、`sync-snapshot`、`verification`，用法见 §8）。**`--scope-mode` 默认 `change`**，全项目审计必须显式传 `--scope-mode project`——照抄示例不传，会把仓库级审计静默建成变更级。
 
 写状态最常见的错误不是漏填，而是**把可选字段一起填满**——`patternScope` 尤其典型（没做同类搜索却被填成 `UNKNOWN`，等于没有信息却多一个字段要维护）。可选字段只在真实存在时物化（不变量前提字段反之，漏填即错误且会让依赖它的不变量静默失效）：`gates`、`stop`+`scopeCoverage`、`independentValidationRequiredFor`、`priorContact`、`availableEvidence`、`supersession`/`supersedesAuditId`、`exploration`、`dispatches`、`decisionHistory`、`provenance`、`fixWorkflow`。
 
@@ -665,9 +688,9 @@ Task: 在目标/scope 内自主寻找 material 风险，不受主代理 risk map
 
 **0. 身份与引用**——后面每一项检查都按 id 索引。重复的 id 会静默覆盖、指向不存在的 id 会静默解析为空，两者都让不变量退化成空操作。因此：claim / unit / finding / residual / hypothesis / evidence 的 id 不得重复；`claimId`、`residualRiskId`、`findingId`、`sourceHypotheses`、`challenge.unitId` 必须指向真实对象。
 
-**1. 不变量前提字段**——validator 不做表单校验，缺字段本该静默跳过依赖它的不变量。因此驱动不变量判定的字段必须存在：`verified` Unit 必须有 `method`；每个 Finding 必须有 `decision`；`CONFIRMED`/`CONDITIONAL`/`NEEDS-DECISION` 必须有 `severity` + `risk` + `confidence`。省略不是"信息少一点"，而是让对应不变量失效。
+**1. 不变量前提字段**——validator 不做表单校验，缺字段本该静默跳过依赖它的不变量。因此驱动不变量判定的字段必须存在：`state.phase`、`claims[].obligation`、`claims[].priority`、`verificationUnits[].status`、`verified` Unit 的 `method`、每个 Finding 的 `decision`，以及 `CONFIRMED`/`CONDITIONAL`/`NEEDS-DECISION` 的 `severity` + `risk` + `confidence`。省略不是"信息少一点"，而是让对应不变量失效。
 
-**1b. 驱动枚举闭合**——驱动值是 validator 与字面量比较的开关，拼写漂移（如 `final`、`"ES3 "`、`required`）不会得到错误结论，而是让判据落空、使被保护的不变量停跑。这些字段的取值集合闭合（见脚本内 `DRIVER_ENUMS`），**缺失与写错同等报错**；实例对照见 §8。
+**1b. 驱动枚举闭合**——驱动值是 validator 与字面量比较的开关，拼写漂移（如 `final`、`"ES3 "`、`required`）不会得到错误结论，而是让判据落空、使被保护的不变量停跑。这些字段的取值集合闭合（见脚本内 `DRIVER_ENUMS`）：**写错一律报错**；漏写只在它驱动某条判据时报错（`phase`、`obligation`、`priority`、`status` 与工件侧枚举字段），不驱动任何判据的字段（如 `audit.scopeMode`、`verificationUnits[].isolation`）缺失不报错，只做拼写漂移检查。实例对照见 §8。
 
 **2. 契约字段**——`objectiveProfiles` 必须含 `general` 且无重复；`independentValidationRequiredFor` 非空、无重复、成员为 `AUDIT` 或已请求的 target（`AUDIT` 不与 target 混用）；`priorContact` 非空、无重复、只取 `implementer`/`informal-verifier`；`gateTargets` 只属于 `REQUIRED` Claim 且必须是已请求的 target；`supersession` 只在 `SUPERSEDED` 存在；`gates.decisions` 在 `ACTIVE`/`SUPERSEDED` 必须缺席。
 
@@ -688,6 +711,10 @@ Task: 在目标/scope 内自主寻找 material 风险，不受主代理 risk map
 **10. 覆盖闭合与探索**——`scopeCoverage` 只在 `stop.policy=exhaustive` 出现，此时必须绑定当前 snapshot，`declaredMembers` 非空，`completedMembers` 与 `excludedMembers` 都来自 declared 且互不重叠，每个排除项必须为 `{member, reason}`；未闭合在 `FINAL` 必须挂 material residual，且该 residual 必须影响**每一个**请求的 Gate（覆盖缺口作废的是整个裁决，不是某一个 target）。显式独立验证要求下，`FINAL` 必须有 highest Claim 且达成双执行者、双方法的 ISOLATED 验证。有 `EXPLORATORY` Claim 必须有 `exploration` 对象，反之必须省略；`exploration` 必须包含 `noMaterialDeltaRounds`（整数，只能在 0–2 之间——连续三轮无 material delta 说明探索早已失去依据）；`rounds[]` 每轮包含 `id`（`X<n>`）、`claimIds`（引用的 EXPLORATORY Claim 列表）与 `materialDelta`（布尔值 `true`/`false`），每轮非空且与 Claim 双向回指。**id 约定**：Claim 始终是 `Q<n>`，即使义务是 `EXPLORATORY`；`X<n>` 属于**探索轮**——写在 Claim 的 `explorationRound` 和 `exploration.rounds[].id` 上，两处必须双向一致。
 
 **11. 风险接受绑定**——`authorization` 必须绑定 `text` + 当前 `auditId` + 完整 `snapshot`（Gate 授权再加 `target`）。**不能跨实例复制**——那等于把别人的签字当成你的。**代理不得自设风险容忍度**：`audit.riskTolerance` 一律禁止。容忍度只有两个合法出口——用户通过 `policies.<target>.blockAtOrAbove` 收紧 Gate 阈值，或某个 Finding 的显式、已授权风险接受。
+
+**12. 派发凭据**——声明 `isolation="ISOLATED"` 的 Unit 必须物化 `dispatchProof`：`type="subagent-task"` 配唯一 `jobId`（同一 `jobId` 不能被两个 Unit 共用——一次派发不是两次独立执行），或 `type="single-agent-inline"`，后者**强制** `isolation="NOT-ISOLATED"`。未声明隔离的 Unit 不要求该字段。
+
+它由主代理填写，因此不使伪造不可能。它堵的是更廉价的失败——标着 `ISOLATED` 却没有任何派发记录时，"独立"只是一句断言，与同一执行者就地写完无从区分。物化后只剩两条路：留下可核对的 `jobId`，或走 `single-agent-inline` 诚实降级（并按 §7 在报告披露未形成 independent validation）。
 
 **supersession**（`--state-root` 检查）：新旧实例双向链接（`supersedesAuditId` ↔ `supersession.byAuditId`），一个旧实例只有一个后继，链不成环。
 
@@ -866,11 +893,16 @@ python -B <skill-root>/scripts/audit_init.py init --audit-id <ID> --target "<TAR
 
 # 派发：为调查单元生成 investigation 骨架与配套工作区
 python -B <skill-root>/scripts/audit_init.py investigation --audit-id <ID> --unit R1 --claim Q1 \
-    --method <ARCHETYPE> --executor <EXECUTOR>
+    --method <ARCHETYPE> --executor <EXECUTOR> \
+    [--dispatch-job <JOB_ID> | --inline]   # 标 ISOLATED 的 Unit 必须登记派发凭据
 
-# 只读执行者回报后：主代理落盘（落盘前自动跑 check，不通过则不落盘）
+# 派发前：生成内嵌工件形状与全部枚举的自包含 prompt
+python -B <skill-root>/scripts/audit_init.py dispatch --audit-id <ID> --unit R1 [--executor <EXECUTOR>] \
+    [--dispatch-job <JOB_ID> | --inline]
+
+# 只读执行者回报后：主代理落盘（剥离宿主外壳、归一形式、落盘前预检，不通过则不落盘）
 python -B <skill-root>/scripts/audit_init.py ingest --audit-id <ID> --unit R1 --executor <EXECUTOR> \
-    --file <PATH>|-
+    --file <PATH>|- [--dispatch-job <JOB_ID> | --inline]
 
 # 主代理接收前：预校验单个 investigation 工件
 python -B <skill-root>/scripts/audit_init.py check --audit-id <ID> --unit R1 [--executor <EXECUTOR>]
@@ -895,9 +927,13 @@ python -B <skill-root>/scripts/validate_audit_state.py --self-test <skill-root>/
 
 `check`、`ingest` 与 `--investigation` 跑的是同一套工件侧检查（枚举闭合、result/recommendation 配对、auditBinding 与派发归属），把归约时才暴露的枚举漂移提前到调查者写完时。三者只校验单个工件，不读取 state 引用的其它工件——并行调查者写到一半的半截 JSON 不会击穿彼此的隔离。
 
-`audit_init.py` 同样是零依赖标准库（3.9+），提供 `init`、`investigation`、`ingest`、`check`、`scaffold-reconciliations`、`sync-snapshot`、`verification` 七种能力。它自动绑定当前 state.json 的 snapshot 与 auditId 并创建配套工作区，不接管流程、不生成 Claim、不做任何事实判断——骨架对了，剩下的实质观察、证据与反证仍由代理负责。
+`dispatch` 把工件形状和全部枚举内嵌进提示词，让子代理在产出时就被卡住，而不是等归约才发现漂移。`ingest` 只做形式归一（Unit 前缀、不可能有歧义的同义字段名），逐条记进工件的 `normalized` 字段；驱动枚举缺失、取值自造、证据极性冲突，以及用 `description` 一类歧义键顶替 `observation`，一律不落盘并输出可直接转发的驳回文本。
 
-**validator 只查 §5 的十二类不变量，不做表单校验**（字段形状以 `valid-*` fixture 为准；漏写未建模键会静默跳过，但驱动值拼错会硬报错以防不变量停跑）。
+`--dispatch-job` / `--inline` 在三个命令上都能登记派发凭据：**优先在派发时登记**（`dispatch` 用于只读执行者、`investigation` 用于可写执行者）——`dispatchedAt` 取的是登记时刻，所以 `ingest` 上登记会把派发时间记成回报时间，只在派发时漏登记时用它补记。`ingest` 的登记发生在工件通过预检之后，回报被拒的 Unit 不会留下"派发过"的记录。
+
+`audit_init.py` 同样是零依赖标准库（3.9+），提供 `init`、`investigation`、`dispatch`、`ingest`、`check`、`scaffold-reconciliations`、`sync-snapshot`、`verification` 八种能力。它自动绑定当前 state.json 的 snapshot 与 auditId 并创建配套工作区，不接管流程、不生成 Claim、不做任何事实判断——骨架对了，剩下的实质观察、证据与反证仍由代理负责。
+
+**validator 只查 §5 的十三类不变量，不做表单校验**（字段形状以 `valid-*` fixture 为准；漏写未建模键会静默跳过，但驱动值拼错会硬报错以防不变量停跑）。
 
 驱动值拼写漂移对照（取值集合见脚本内 `DRIVER_ENUMS`）：
 

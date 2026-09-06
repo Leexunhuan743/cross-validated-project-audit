@@ -6,7 +6,7 @@
 
 ## 用户需要提供什么
 
-自然语言说明目标即可。Skill 会自动归一六要素：
+自然语言说明目标即可。Skill 会归一：
 
 ```text
 Audit target
@@ -17,27 +17,17 @@ Available evidence
 Deliverable
 ```
 
-常见入口与映射模式：
+常见入口：
 
 | 请求 | 典型解释 |
 |---|---|
 | “全面审计这个项目” | project 范围的仓库级风险覆盖；不自动承诺逐文件穷尽 |
-| “严格审这个 PR，告诉我能不能合并” | pr 范围 + CHANGE Gate |
+| “严格审这个 PR，告诉我能不能合并” | pr + CHANGE Gate |
 | “做这个范围的安全审计” | 当前 scope + security profile |
 | “审某作者在指定范围的提交” | author-commits + 不可变 Git 范围 |
 | “这个候选能不能发布” | RELEASE Gate |
 | “确认这个修复是否真的生效” | fix-verification profile |
-| “审完后修复本地问题” | audit-and-fix 模式；不自动授权 commit/push/deploy |
-
-## 架构与分工
-
-系统建立在明确的三层分工之上，阻断廉价共识与过度结论：
-
-- **Validator（机器裁判，`scripts/validate_audit_state.py`）**：严格守住 12 类核心不变量与状态机判据开关。不做冗余的表单级字段校验，但对让断言静默失效的破坏（重复 ID、悬空引用、前提字段缺失、驱动枚举拼写漂移）零容忍硬报错。
-- **Fixture（形状基准，`scripts/fixtures/`）**：以真实 JSON 示范数据结构（`valid-ordinary-no-gate` 为最小合法形状，`valid-audit-and-fix` 为修复工作流完整形状），不依赖抽象冗余的外部 Schema。
-- **Agent（语义分层）**：
-  - **调查者（Investigator）**：只能提交具象且可证伪的假设（`Hypothesis`，须写成“存在缺陷 X”的怀疑句）与直接证据（`DIRECT Evidence`），无权创建 Finding 或定级；
-  - **主代理（Lead Agent）**：独占 Finding 归约、Severity 定级、Decision 裁决、Gate 判定与第二挑战（`challenge`）复核权。
+| “审完后修复本地问题” | audit-and-fix；不自动授权 commit/push/deploy |
 
 ## 核心保证
 
@@ -45,14 +35,14 @@ Deliverable
 - **语义分层**：Hypothesis 是可证伪怀疑，Evidence 是直接观察，Finding 是主代理规范化的问题对象，Decision 是最终裁决。**推理永远不是 Evidence。**
 - **风险先于代理**：风险主张写一次；每种验证方法成为独立 Unit，最后才选择执行者。代理数量不是覆盖指标。
 - **反证优先**：material Hypothesis 提升前必须检查最强现实安全解释和实际反证；被反驳就关闭，不靠降低 Severity 来消除风险。
-- **异质不等于独立**：同一执行者的不同方法可以异质（不同 Archetype），但 independent validation 还须叠加异质覆盖与物理隔离执行者（不同 `executor` 且均为 `ISOLATED`）等前置条件。
+- **异质不等于独立**：同一执行者的不同方法可以异质，但 independent validation 还须叠加异质覆盖与不同执行者等前置条件。
 - **公共路径优先**：用户可见、平台、并发和第三方语义优先从真实入口或对应版本权威契约获取 Evidence，内部看起来正确不算数。
 - **Severity ≠ Confidence ≠ Evidence Strength**：影响大小、整体确定度、单条证据质量分别表达，不许互相折算。
-- **冲突靠判别，不靠投票**：支持与反证冲突时寻找能区分双方的直接观察（最小分歧前提），不按证据条数或代理数量取胜。
+- **冲突靠判别，不靠投票**：支持与反证冲突时寻找能区分双方的直接观察，不按证据条数或代理数量取胜。
 - **条件概念按需出现**：没有 Gate 就不创建 Gate；不做变更归因就不写 Provenance；Disposition 只在真实进入整改、验证消除，或无 Gate 时明确接受整个 Finding 后物化；没有探索轮就不维护探索计数；先验接触（`priorContact`）、失败派发登记（`dispatches[]`）与超范围外溢（`peripheralObservations`）同样只在触发时物化。可选字段仅在触发时物化，未触发保持缺省；可参考 `scripts/fixtures/valid-ordinary-no-gate/state.json` 起步。
 - **先验接触必须显式化**：主代理是被审变更的实现者或此前的非正式验证者时，契约写 `priorContact` 并新建一个 REQUIRED 变更面扫描 Claim（`scopeMode=project` 无 diff 可扫，改为披露并建议独立第二审计者）。
 - **阴性结论也要复核**：verified 有最低复核深度（重导决定性证据链或复跑探针，FINAL 前抽样），漏网缺陷可以藏在一个标签同为 verified 的干净单元里。
-- **合法结束不等于 clean conclusion**：关键证据不可得时，受限报告或 INCOMPLETE 是正确结果。**只有同时满足五项硬门槛**（无未决 Finding、REQUIRED 全部 verified 且有 DIRECT 证据、Sufficiency=MET、无 material gap、通过机器校验），才允许给出未发现缺陷的结论；严禁声称“绝对安全”、“无 bug”。
+- **合法结束不等于 clean conclusion**：关键证据不可得时，受限报告或 INCOMPLETE 是正确结果。
 - **状态改变不覆盖历史**：权威 target/snapshot/scope/shared facts 发生契约外实质变化时，旧实例冻结为 SUPERSEDED，新实例从 ACTIVE 重新取证，不把旧裁决复制为当前结论。事先约定的 audit-and-fix PRE→POST 转换是同一任务契约的执行，不是外部换目标。
 - **穷尽要求可证明**：用户明确要求逐文件/逐行时，非空 scope inventory、完成项、排除项和最终 snapshot 写入 `scopeCoverage`；未闭合成员在没有已确认 blocker 时导致相关 Gate 推导为 INCOMPLETE，已有 blocker 时保持 BLOCKED 并同时披露缺口。
 - **未提交修复有身份**：Git 工作树没有授权 commit 时，用 PRE/POST HEAD 加确定性内容 manifest 形成 `git-worktree` snapshot，不创建越权 commit，也不把未提交内容冒充 Git object。
@@ -72,11 +62,12 @@ Deliverable
 <stateRoot>/archive/<auditId>/                          # 已归档实例
 ```
 
-**工作区分区与只读隔离纪律**：被审计目标树对调查者严格只读；`.audits/<auditId>/` 是审计工作区，按 unit + executor 分片管理：
-- **结论区**（`investigations/<R_ID>-<EXECUTOR>.json`）：唯一结论文件；可写执行者直接写入，只读执行者通过 `audit_init.py ingest` 预检落盘。禁止调查者互读他人结论。
-- **临时区**（`probes/<R_ID>-<EXECUTOR>/`）：判别性探针、最小复现脚本；遵守探针三纪律（阳性对照、expect/actual 分离、fail-closed 变异守卫）。主代理复核后：被 Evidence 引用的探针保留为复核附件、一次性噪音清理。
-- **实验区**（`scratch/<R_ID>-<EXECUTOR>/`）：装依赖、改状态、跑构建等隔离实验；用完即清，`FINAL` 前清空。
-- **禁区**：`state.json` 与 `verification/` 只由主代理维护，调查者严禁触碰。
+**写入分工**：被审计目标树对调查者严格只读；`.audits/<auditId>/` 是审计工作区，按 unit + executor 分片管理：
+- 结论工件写入 `investigations/<R_ID>-<EXECUTOR>.json`（唯一结论文件）；
+- 判别性探针、复现脚本存放在 `probes/<R_ID>-<EXECUTOR>/`，主代理复核后：被 Evidence 引用的探针保留为复核附件、一次性噪音清理；
+- 实验产物（装依赖、改状态、跑构建）存放在 `scratch/<R_ID>-<EXECUTOR>/`，用完即清，`FINAL` 前清空；
+- `state.json` 与 `verification/` 只由主代理写入；
+- 隔离靠路径唯一分片、互不查阅他人文件、临时产物及时清空以及主代理接收时核对范围保证。
 
 初始化建议使用 `scripts/audit_init.py` 命令行脚手架直接生成合规骨架（省去手写嵌套结构与快照不一致的风险），亦可参考 `scripts/fixtures/valid-ordinary-no-gate/state.json`。
 
@@ -92,30 +83,15 @@ python -B scripts/validate_audit_state.py --self-test scripts/fixtures
 
 以下是机械可判子集；语义判断（Evidence 是否可信、Severity 是否合理）仍由主代理负责。
 
-它检查十二类不变量（完整定义与实现详见 `SKILL.md §5`）：
-0. **身份与引用完整性**：ID 全局唯一，杜绝悬挂引用或重复覆盖导致的静默放行。
-1. **前提字段与驱动枚举**：驱动判据字段缺失报错；`DRIVER_ENUMS` 严格闭合，拼写漂移（如 `"ES3 "`、`"required"`）硬报错。
-2. **契约字段**：`objectiveProfiles` 必含 `general`；Gate 决策期次限定；`independentValidationRequiredFor` 合法性。
-3. **快照绑定**：工件声明与状态深度相等；FINAL 必须具备不可变 identity。
-4. **证据图谱**：归约一一对应、极性闭合、`verifiedBehaviors` 必须为 `{behavior, evidenceRefs}` 结构回指证据。
-5. **反证与第二挑战**：假说配对闭环、反证成立关闭原假设、Critical/High 必须完成异质第二挑战。
-6. **结论强度**：Severity 严格绑定 Impact 闭合映射、CONFIRMED 置信度要求、测试判别力 `YES`。
-7. **Finding-Gate 绑定**：适用性需对应极性证据支撑、存在 Gate 时禁止滥用全局风险接受。
-8. **Gate 机械推导**：按优先级重算比对、basis 须命中决定性 Token 或 ID。
-9. **批次新鲜度**：fixWorkflow generation 一致性、依赖图无环、FINAL 批次全通过。
-10. **覆盖闭合与探索**：穷尽清单未闭合阻断 Gate、探索轮次上限约束。
-11. **风险接受绑定**：不可跨实例挪用签字、禁止代理自设 `riskTolerance`。
-- **State-Root 拓扑**：`--state-root` 检查实例接替图（supersession）双向链接、唯一后继且全局无环。
+它检查十三类不变量（完整清单见 `SKILL.md` §5）：身份与引用、不变量前提字段、契约字段、快照绑定、证据图、反证、结论强度、Finding-Gate 绑定、Gate 推导、批次新鲜度、覆盖闭合与探索、风险接受绑定、派发凭据。`--state-root` 另外检查 supersession 图的双向链接、唯一后继与无环。
 
-**它不做表单校验**——不检查 id 格式、路径词法、目录布局、未建模字段。字段形状以 fixture 为准。代价是缺字段会静默跳过依赖它的检查，因此不变量 0、1 与 1b 专门守会让检查静默失效的情况，一律报错：不变量 0 管身份与引用（重复 id 会静默覆盖、悬空引用会静默解析为空），不变量 1 管驱动不变量判定的前提字段缺失（`phase`、`obligation`、`priority`、`status`、工件侧枚举字段），不变量 1b 管驱动枚举闭合（近似的枚举值不是"缺字段"，而是让判据落空，如 `phase: "final"` 会读作"不是 FINAL"从而豁免全部收口义务）。枚举取值集合见脚本内 `DRIVER_ENUMS`；不驱动任何判据的字段只做拼写漂移检查，缺失不报错。
+**它不做表单校验**——不检查 id 格式、路径词法、目录布局、未建模字段。字段形状以 fixture 为准。代价是缺字段会静默跳过依赖它的检查，因此不变量 0、1 与 1b 专门守会让检查静默失效的情况，一律报错：不变量 0 管身份与引用（重复 id 会静默覆盖、悬空引用会静默解析为空），不变量 1 管驱动不变量判定的前提字段缺失（`state.phase`、`claims[].obligation`/`priority`、`verificationUnits[].status`、`verified` Unit 的 `method`、Finding 的 `decision` 与 CONFIRMED 系评级），不变量 1b 管驱动枚举闭合——写错一律报错（近似的枚举值不是"缺字段"，而是让判据落空，如 `phase: "final"` 会读作"不是 FINAL"从而豁免全部收口义务），漏写只对不变量 1 的字段与工件侧枚举字段报错。其余驱动枚举字段（如 `audit.scopeMode`、`verificationUnits[].isolation`）缺失不报错，只做拼写漂移检查。枚举取值集合见脚本内 `DRIVER_ENUMS`。
 
-`--self-test` 跑 38 个 fixture（8 个正例 + 30 个反例）。改动 validator 后应跑一遍。
+`--self-test` 跑 44 个 fixture（10 个正例 + 34 个反例）。改动 validator 后应跑一遍。
 
 validator 通过只证明状态内部一致，不证明代码事实和风险判断正确。
 
-## 脚手架工具链（`scripts/audit_init.py`）
-
-零第三方依赖（Python 3.9+），提供骨架生成、工件落盘与预校验、归约草稿和快照同步七类命令，解决“手写多层嵌套 JSON 易手滑与快照漂移”的痛点。它自动绑定当前不可变 snapshot，生成带 TODO 的合法骨架；它不接管流程、不生成 Claim、不做事实判断：
+辅助脚手架是 `scripts/audit_init.py`（零第三方依赖，Python 3.9+）：它提供派发提示词、骨架生成、工件落盘与预校验、归约草稿和快照同步八类命令，解决"凭空手写多层嵌套 JSON 容易手滑与快照漂移"的痛点。它自动绑定当前不可变 snapshot，生成带 TODO 的合法骨架；它不接管流程、不生成 Claim、不做事实判断：
 
 ```text
 # 1. 开局：生成 state.json 骨架并建好工作区
@@ -125,27 +101,36 @@ python -B scripts/audit_init.py init --audit-id <ID> --target "<TARGET>" --scope
 
 # 2. 派发：为调查者生成 investigation 骨架及配套 probes/scratch 目录
 python -B scripts/audit_init.py investigation --audit-id <ID> --unit R1 --claim Q1 \
-    --method <ARCHETYPE> --executor <EXECUTOR> [--clean]
+    --method <ARCHETYPE> --executor <EXECUTOR> [--clean] \
+    [--dispatch-job <JOB_ID> | --inline]   # 标 ISOLATED 的 Unit 必须登记派发凭据
 
-# 3. 只读执行者回报后落盘（无写权限的探针型 agent 用这条，落盘前自动预检）
+# 3. 派发前：生成内嵌工件形状与全部枚举的自包含提示词
+python -B scripts/audit_init.py dispatch --audit-id <ID> --unit R1 [--executor <EXECUTOR>] \
+    [--dispatch-job <JOB_ID> | --inline]
+
+# 4. 只读执行者回报后落盘（剥离宿主外壳、归一形式，落盘前自动预检）
 python -B scripts/audit_init.py ingest --audit-id <ID> --unit R1 --executor <EXECUTOR> \
-    --file <PATH>|-
+    --file <PATH>|- [--dispatch-job <JOB_ID> | --inline]
 
-# 4. 预校验：校验单个 investigation 工件，不读取其它并行工件
+# 5. 预校验：校验单个 investigation 工件，不读取其它并行工件
 python -B scripts/audit_init.py check --audit-id <ID> --unit R1 [--executor <EXECUTOR>]
 
-# 5. 归约：按 H 的 result 生成 reconciliations[] 草稿（含 TODO 占位符）
+# 6. 归约：按 H 的 result 生成 reconciliations[] 草稿（含 TODO 占位符）
 python -B scripts/audit_init.py scaffold-reconciliations --audit-id <ID> [--unit R1] [--force]
 
-# 6. audit-and-fix 修复定稿后：把 finalSha256 同步进此前绑定的工件
+# 7. audit-and-fix 修复定稿后：把 finalSha256 同步进此前绑定的工件
 python -B scripts/audit_init.py sync-snapshot --audit-id <ID> [--dry-run]
 
-# 7. 复核：为主代理生成 verification 骨架及第二挑战结构
+# 8. 复核：为主代理生成 verification 骨架及第二挑战结构
 python -B scripts/audit_init.py verification --audit-id <ID> --finding F1 \
     --method <ARCHETYPE> --checked-evidence R1-E1
 ```
 
 `ingest`、`check` 与 `validate_audit_state.py --investigation` 跑的是同一套工件侧检查（枚举闭合、result/recommendation 配对、auditBinding 与派发归属），把归约时才暴露的枚举漂移提前到写完时。三者只校验单个工件，不读取 state 引用的其它工件——并行调查者写到一半的半截 JSON 不会击穿彼此的隔离。
+
+`ingest` 只做形式归一（Unit 前缀、不可能有歧义的同义字段名），逐条记进工件的 `normalized` 字段；驱动枚举缺失、取值自造、证据极性冲突，以及用 `description` 一类歧义键顶替 `observation`（它可能是事实也可能是分析，机械改名就是把分析当观察归档），一律不落盘。`dispatch` 把工件形状和全部枚举内嵌进提示词，让子代理在产出时就被卡住，而不是等归约才发现。
+
+`--dispatch-job` / `--inline` 在 `dispatch`、`investigation`、`ingest` 上都能登记派发凭据，优先在派发时登记（`dispatchedAt` 取登记时刻，`ingest` 上补记会把派发时间记成回报时间）。
 
 字段形状与真实填空仍可对照 `scripts/fixtures/` 示例；骨架生成后由代理填入实际代码行、观察事实与反证。
 
@@ -193,7 +178,7 @@ python -B scripts/audit_init.py verification --audit-id <ID> --finding F1 \
 | `references/failure-patterns.md` | 风险地图有盲区或需要 Hypothesis seeds（按需） |
 | `references/git-scoping.md` | 涉及复杂 git 范围、变基、提交历史切分（按需） |
 | `references/platform-runtime-patterns.md` | 涉及跨平台（Windows/Linux/macOS）、并发/异步、I/O 模式（按需） |
-| `scripts/audit_init.py` | 脚手架工具：一键生成 state/investigation/verification 合法骨架，落盘只读执行者回报的工件、预校验单个工件、生成归约草稿与同步快照，Python 3.9+ |
+| `scripts/audit_init.py` | 脚手架工具：生成带输出 Schema 的派发提示词，一键生成 state/investigation/verification 合法骨架，落盘只读执行者回报的工件（剥离宿主外壳、归一形式、预检）、预校验单个工件、生成归约草稿与同步快照，Python 3.9+ |
 | `scripts/validate_audit_state.py` | 可选校验器，Python 3.9+ |
 
 §4 是参考手册、§6 是结论标准，两者都不属于主流程——建风险地图时按需查 §4，定稿判断时按需查 §6，有把握可跳过。必读部分（§1–§3、§5、§7–§8）约 410 行，另有前言 11 行。
