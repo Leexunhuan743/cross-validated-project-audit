@@ -983,6 +983,13 @@ def check_artifact_disconfirmation(a: Audit, r: Report) -> None:
             if hyp.get("disconfirmationResult") == "counter-supported" and result != "refuted":
                 r.error(f"{path}.result", "a counter-supported hypothesis must be closed (result=refuted)")
             refs = strset(hyp.get("evidenceRefs"))
+            # An id is only meaningful inside the artifact that defines it. A ref
+            # naming another Unit's Evidence is not resolved to that Unit -- it
+            # resolves to nothing here, and the reconciliation layer would then
+            # reject it as not produced by this Unit. Catching it at write time
+            # keeps the investigator from shipping a ref that cannot survive.
+            for ref in refs - a.unit_evidence.get(unit_id, set()):
+                r.error(f"{path}.evidenceRefs", f"{ref!r} is not Evidence defined in this artifact")
             if result == "supported" and not {ref for ref in refs if a.evidence_polarity.get(ref) == "supports"}:
                 r.error(f"{path}.evidenceRefs", "supported requires at least one supports Evidence")
             if result == "refuted" and not {ref for ref in refs if a.evidence_polarity.get(ref) == "refutes"}:

@@ -87,7 +87,7 @@ python -B scripts/validate_audit_state.py --self-test scripts/fixtures
 
 **它不做表单校验**——不检查 id 格式、路径词法、目录布局、未建模字段。字段形状以 fixture 为准。代价是缺字段会静默跳过依赖它的检查，因此不变量 0、1 与 1b 专门守会让检查静默失效的情况，一律报错：不变量 0 管身份与引用（重复 id 会静默覆盖、悬空引用会静默解析为空），不变量 1 管驱动不变量判定的前提字段缺失（`state.phase`、`claims[].obligation`/`priority`、`verificationUnits[].status`、`verified` Unit 的 `method`、Finding 的 `decision` 与 CONFIRMED 系评级），不变量 1b 管驱动枚举闭合——写错一律报错（近似的枚举值不是"缺字段"，而是让判据落空，如 `phase: "final"` 会读作"不是 FINAL"从而豁免全部收口义务），漏写只对不变量 1 的字段与工件侧枚举字段报错。其余驱动枚举字段（如 `audit.scopeMode`、`verificationUnits[].isolation`）缺失不报错，只做拼写漂移检查。枚举取值集合见脚本内 `DRIVER_ENUMS`。
 
-`--self-test` 跑 44 个 fixture（10 个正例 + 34 个反例）。改动 validator 后应跑一遍。
+`--self-test` 跑 45 个 fixture（10 个正例 + 35 个反例）。改动 validator 后应跑一遍。新增 `invalid-*` fixture 时必须在 `scripts/fixtures/expectations.json` 登记预期错误片段与 `<case>.error_count`——未登记的 case 只断言"确实被拒"，不校验拒绝理由与报错条数，新增检查往它身上追加无关错误也不会被拦。
 
 validator 通过只证明状态内部一致，不证明代码事实和风险判断正确。
 

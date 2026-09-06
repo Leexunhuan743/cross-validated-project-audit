@@ -1,0 +1,24 @@
+{
+  "auditBinding": {"auditId": "release-001", "snapshot": {"kind": "deployment", "version": "release-candidate-2026-08-22"}},
+  "unitId": "R2",
+  "claimId": "Q1",
+  "method": "user-path-trace",
+  "hypotheses": [],
+  "evidence": [
+    {
+      "id": "R2-E1",
+      "polarity": "context",
+      "strength": "ES4",
+      "reproducibility": "repeatable",
+      "source": "public-path smoke test",
+      "observation": "a malformed token receives an authorization failure"
+    }
+  ],
+  "coverageSummary": {
+    "checked": ["public login route"],
+    "verifiedBehaviors": [
+      {"behavior": "malformed tokens are rejected", "evidenceRefs": ["R2-E1"]}
+    ],
+    "gaps": []
+  }
+}
