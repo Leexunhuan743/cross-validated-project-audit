@@ -224,7 +224,11 @@ class Audit:
         self.verifications: dict = {}
 
     # -- loading ---------------------------------------------------------
-    def load(self) -> bool:
+    def load(self, load_artifacts: bool = True) -> bool:
+        """`load_artifacts=False` reads state.json only. A pre-flight check of
+        one artifact must not read the state's other filings: a sibling still
+        mid-write is a half-parsed JSON, and its syntax error would otherwise
+        fail the artifact being checked."""
         path = self.root / "state.json"
         if not path.is_file():
             self.report.error(str(path), "state.json is missing")
@@ -238,7 +242,8 @@ class Audit:
             self.report.error(str(path), "state.json must be an object")
             return False
         self.state = data
-        self._load_artifacts()
+        if load_artifacts:
+            self._load_artifacts()
         return True
 
     def _load_artifacts(self) -> None:
@@ -953,7 +958,10 @@ def check_artifact_disconfirmation(a: Audit, r: Report) -> None:
             if result == "supported" and not {ref for ref in refs if a.evidence_polarity.get(ref) == "supports"}:
                 r.error(f"{path}.evidenceRefs", "supported requires at least one supports Evidence")
             if result == "refuted" and not {ref for ref in refs if a.evidence_polarity.get(ref) == "refutes"}:
-                r.error(f"{path}.evidenceRefs", "refuted requires at least one refutes Evidence")
+                r.error(f"{path}.evidenceRefs",
+                        "refuted requires at least one refutes Evidence; polarity follows the hypothesis, "
+                        "not the code -- evidence showing the code is safe refutes a 'defect exists' "
+                        "hypothesis, it does not support it")
 
 
 def check_disconfirmation(a: Audit, r: Report) -> None:
@@ -1784,7 +1792,7 @@ def validate_investigation(root: Path, rel: str) -> Report:
     audit run would apply at reconciliation time."""
     report = Report(str(rel))
     audit = Audit(root, report)
-    if not audit.load():
+    if not audit.load(load_artifacts=False):
         return report
     path = root / rel
     if not path.is_file():
@@ -1807,10 +1815,9 @@ def validate_investigation(root: Path, rel: str) -> Report:
                      "state.json.verificationUnits; the artifact claims an obligation the state does not track")
         return report
     audit._index_artifact(data, str(path))
-    # Drop what load() indexed so the checks below report on this artifact only.
-    # Reuse check_bindings rather than a single-artifact copy: it is the one that
-    # catches an auditBinding missing a key, which otherwise compares equal to a
-    # null snapshot and passes unchallenged.
+    # check_bindings also compares claimId/method against the dispatch, and is
+    # the one that catches an auditBinding missing a key -- that omission reads
+    # as None and silently matches a null snapshot.
     audit.investigations = {unit_id: data}
     audit.verifications = {}
     check_artifact_enums(audit, report)

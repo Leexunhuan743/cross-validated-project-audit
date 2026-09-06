@@ -105,7 +105,14 @@ Deliverable: 合并门禁裁决 + 阻断清单
 - 没有明确独立验证硬要求时，优先把最高风险的异质单元交给不同隔离执行者；并行失败时退化为串行是合法降级，但不豁免隔离评估。
 - **单 Agent 执行时的规程**：在当前环境未配置真正隔离的多个执行者时，**禁止把同一个执行者写成两个不同的 `executor` 字符串冒充独立验证**。保留方法异质性（不同 `method`），如实标 `isolation=NOT-ISOLATED`，并在报告的 Residual uncertainty 中披露"未达成物理隔离的独立双人审计"。
 
-调查者任务必须有明确边界、指定方法、允许检查、唯一 investigation 接收路径和截止条件（可用 `audit_init.py investigation --unit <R_ID> --claim <Q_ID> --method <ARCHETYPE> --executor <EXECUTOR>` 一键原子生成带 `auditBinding` 的合规骨架与隔离目录）。调查者直接将完整 JSON 写入 `.audits/<auditId>/investigations/<R_ID>-<EXECUTOR>.json`，写完回报路径与一句摘要。主代理接收时核对归属与内容，在 `state.json.verificationUnits[]` 写入 `"investigationFile": "investigations/<R_ID>-<EXECUTOR>.json"`，再把 Unit 置为 `reported`。
+调查者任务必须有明确边界、指定方法、允许检查、唯一 investigation 接收路径和截止条件（可用 `audit_init.py investigation --unit <R_ID> --claim <Q_ID> --method <ARCHETYPE> --executor <EXECUTOR>` 一键原子生成带 `auditBinding` 的合规骨架与隔离目录）。
+
+**落盘方式按执行者的写权限分两类**：
+
+- **可写执行者**——直接写 `investigations/<R_ID>-<EXECUTOR>.json`，写完回报路径与一句摘要。
+- **只读执行者**（harness 剥离了写工具的探针型 agent）——不要求它写盘。它按骨架形状回报完整 JSON，主代理用 `audit_init.py ingest --unit <R_ID> --executor <EXECUTOR> --file <PATH>|-` 落盘。**不要**让只读执行者把 JSON 塞进回报正文再手工转录：长工件会在补全上限处截断，多层内嵌会让正则转义在反序列化时失真。
+
+`ingest` 落盘前先跑 §8 的工件侧校验，不通过则不落盘并保留原有文件。主代理接收时核对归属与内容，在 `state.json.verificationUnits[]` 写入 `"investigationFile": "investigations/<R_ID>-<EXECUTOR>.json"`，再把 Unit 置为 `reported`。
 
 **隔离边界：被审计目标树只读，审计工作区可写但分片**。调查者工作区分三区，均在 `.audits/<auditId>/` 下且按 unit + executor 分片（配合禁区与目标树权限如下）：
 
@@ -181,7 +188,7 @@ audit-only 首次运行可把 `.audits/` 单条追加到 `.git/info/exclude`（�
 
 1. 合并同一逻辑问题为一个 Finding，必须有现实影响链、触发条件、H/E 引用、可判定退出条件。
 2. **亲自复核决定性证据**并写 `verification/F<n>.json`（可用 `audit_init.py verification --finding F<n> --method <ARCHETYPE> --checked-evidence <E_ID>` 生成骨架）：不能只转述调查者结论。`checkedEvidence` 只引用该 Finding 的 investigation 链；新产生的 `F<n>-E<m>` 必须回写到 Finding 的某个 evidence 字段；在 `state.json.findings[]` 显式写入 `"verificationFile": "verification/F<n>.json"`。
-3. **归约 Unit 并落盘**：复核通过的 Unit，在 `state.json.verificationUnits[]` 里从 `reported` 推进到 `verified`，并写入与该 Unit `hypotheses[]` 一一对应的 `reconciliations[]`——每项为 `{hypothesisId, result, evidenceRefs, [findingId], [residualRiskId]}`，其中 `result` 严格使用全大写 `"FINDING"` / `"REFUTED"` / `"RESIDUAL-GAP"` 并绑定 DIRECT 证据（`FINDING` 至少一条 `supports`、`REFUTED` 至少一条 `refutes`、`RESIDUAL-GAP` 指向 `material=true` 的 `G<n>`）。**停在 `reported` 不推进不会报错，但会让相关 Gate 因"REQUIRED Unit 未全部 verified"推导为 `INCOMPLETE`**——不变量 4/6 只在 `verified` 上跑，漏推进等于把缺口藏起来。
+3. **归约 Unit 并落盘**：复核通过的 Unit，在 `state.json.verificationUnits[]` 里从 `reported` 推进到 `verified`，并写入与该 Unit `hypotheses[]` 一一对应的 `reconciliations[]`——每项为 `{hypothesisId, result, evidenceRefs, [findingId], [residualRiskId]}`，其中 `result` 严格使用全大写 `"FINDING"` / `"REFUTED"` / `"RESIDUAL-GAP"` 并绑定 DIRECT 证据（`FINDING` 至少一条 `supports`、`REFUTED` 至少一条 `refutes`、`RESIDUAL-GAP` 指向 `material=true` 的 `G<n>`）。机械映射部分用 `audit_init.py scaffold-reconciliations --audit-id <ID>` 生成草稿（按 H 的 `result` 配对同极性 Evidence），草稿的 `findingId`/`residualRiskId` 是 `TODO-F<n>`/`TODO-G<n>` 占位符，会被 validator 判为悬空引用——这是刻意的，主代理必须替换成真实 id 才算完成裁决。**停在 `reported` 不推进不会报错，但会让相关 Gate 因"REQUIRED Unit 未全部 verified"推导为 `INCOMPLETE`**——不变量 4/6 只在 `verified` 上跑，漏推进等于把缺口藏起来。
 4. 支持与反证冲突时，定位**最小分歧前提**（双方真正分歧的那个事实），用新的判别性 DIRECT Evidence 裁决，**不按票数**。Finding 形成前写在 investigation 的 reasoning/disconfirmation，已形成则写在 `verification/F<n>.json` 并引用双方 Evidence id——**不新增平行 live 字段**。保留并解释冲突证据，目标环境可重复反证通常高于本地模拟。
 5. Severity 为 Critical/High 且 Decision ∈ `CONFIRMED`/`CONDITIONAL`/`NEEDS-DECISION` 的 Finding 必须记录第二挑战（`challenge`）。完成时 `status="COMPLETED"`，模式二选一：`mode="HETEROGENEOUS-METHOD"`（异质方法挑战，必须有 `unitId`、`method`、`evidenceRefs`）或 `mode="EQUIVALENT-DIRECT-DISCONFIRMATION"`（等价直接反证，引新证据，禁止带 `unitId`）；无法完成时用 `CONDITIONAL` + `challenge.status="GAP"`（此时只留 `gapReason`，严禁携带 `mode/unitId/method/evidenceRefs/result` 等已完成字段）并传播缺口。
 6. 修复验证用 `resolutionChallenge`（判"当前快照风险是否已消失"），**不能拿"问题过去成立"的 challenge 顶替**；它没有 GAP 状态。
@@ -352,20 +359,21 @@ CLI、UI、迁移、SDK、计划方案不是额外调度主键，它们只决定
 - Workdir: <WORKDIR>            Allowed checks: <ALLOWED_CHECKS>
 - Operational notes（单向、判断中立）: <HARNESS_PLATFORM_ENV_FACTS_ONLY_OR_OMIT>
 - Deadline/stop: <BOUND>
-- Canonical destination（唯一的结论文件，你直接写它）:
+- Canonical destination（唯一的结论文件）:
   .audits/<AUDIT_ID>/investigations/<R_ID>-<EXECUTOR>.json
+  （可写就自己写；只读就回报完整 JSON，由主代理 ingest 到这里。）
   Temporary workspace（判别性探针、复现脚本；留待主代理步骤 4 复核）:
   .audits/<AUDIT_ID>/probes/<R_ID>-<EXECUTOR>/
   Experiment workspace（隔离环境实验；用完即清理）:
   .audits/<AUDIT_ID>/scratch/<R_ID>-<EXECUTOR>/
-  → 写完才回报路径。禁区是 state.json、verification/，以及其它 unit 的子目录。
+  → 可写执行者写完才回报路径。禁区是 state.json、verification/，以及其它 unit 的子目录。
 
 # Work
 1. 用指定 method 检查真实实现、公共路径或对应版本权威契约；辅助方法明确标为
    supplemental，不静默换方法。**Claim 的 discriminatingObservation 是起点不是
    边界**——它告诉你从哪里开始看，不限制你能报告什么。
 2. 只把 material、可证伪的怀疑写入 hypotheses。**每条 hypothesis 必须写成"存在缺陷 X"的怀疑句，禁止写成"X 是正确的"肯定句**——肯定句写成的假设无法归约：`refuted` 会反转成"存在缺陷"。Evidence 必须 DIRECT；推理写
-   reasoning，不编号成 Evidence。分三档处理你看到的东西：
+   reasoning，不编号成 Evidence。**极性按假说判定，不按代码好坏**：假说陈述"存在缺陷 X"，那么证明代码安全、实现规范的证据是 `refutes`（它反驳了缺陷假说），不是 `supports`。分三档处理你看到的东西：
    - 本 Claim 范围内的 material 怀疑 → 正常建 H；
    - **超出本 Claim 范围的 material 风险 → 同样正常建 H**，并在回报里标注
      "out-of-scope"；
@@ -386,7 +394,7 @@ CLI、UI、迁移、SDK、计划方案不是额外调度主键，它们只决定
 # Hard boundaries
 - **被审计目标树对你严格只读**：不修改项目源码、Git metadata、依赖、外部系统或生产。
 - **工作区分片（仅限以下分片路径，严禁触碰禁区 `state.json`、`verification/` 或其它 unit 目录）**：
-  - 唯一结论工件（直接写入）：`investigations/<R_ID>-<EXECUTOR>.json`
+  - 唯一结论工件（可写执行者直接写入，只读执行者回报给主代理 ingest）：`investigations/<R_ID>-<EXECUTOR>.json`
   - 临时探针与复现（保留待复核）：`probes/<R_ID>-<EXECUTOR>/`
   - 隔离实验空间（用完即清理）：`scratch/<R_ID>-<EXECUTOR>/`
 - 不安装、不 commit、不 push、不部署、不访问凭据或有副作用 API。
@@ -394,14 +402,22 @@ CLI、UI、迁移、SDK、计划方案不是额外调度主键，它们只决定
 - 不列 `investigations/`、`probes/` 或 `scratch/` 目录、不读取其它调查者文件，不与其它调查者交换判断。
 
 # Output JSON
-直接写入上面的 canonical destination，严格用 fixture 的 investigation 形状：
-先写与当前 `state.json.audit` 完全一致的 `auditBinding={auditId,snapshot}`，再写
-unitId、claimId、method、hypotheses、evidence、coverageSummary。H/E id 使用 Unit
-前缀并唯一。每条假说的 `result` 与 `recommendation` 严格闭合配对（`supported → promote-to-finding`；`refuted → close`；`unresolved → promote-to-finding|residual-gap`；`disconfirmationResult="counter-supported"` 时必须 `result="refuted"`）。schema 之外不得自造键。优先用环境的原子写入；没有就用同目录 `.tmp` 再
-rename——主代理以"JSON 能完整解析且校验通过"为准，写入中断留下的半截文件按孤儿文件处理。
+按上面的形状产出完整 JSON：先写与当前 `state.json.audit` 完全一致的
+`auditBinding={auditId,snapshot}`，再写 unitId、claimId、method、hypotheses、
+evidence、coverageSummary。H/E id 使用 Unit 前缀并唯一。每条假说的 `result` 与
+`recommendation` 严格闭合配对（`supported → promote-to-finding`；`refuted → close`；
+`unresolved → promote-to-finding|residual-gap`；`disconfirmationResult="counter-supported"`
+时必须 `result="refuted"`）。schema 之外不得自造键。
+
+**怎么交付由你的写权限决定**：
+
+- 可写：直接写入上面的 canonical destination。优先用环境的原子写入；没有就用同目录
+  `.tmp` 再 rename——主代理以"JSON 能完整解析且校验通过"为准，写入中断留下的半截文件按孤儿文件处理。
+- 只读（没有写工具）：**完整 JSON 作为唯一交付物回报，不要压缩成摘要**。主代理用
+  `audit_init.py ingest` 落盘并校验。截断或被转述的 JSON 一律退回重报。
 
 # 枚举闭合
-写错或漏写以下字段，依赖它的不变量会静默停跑（不报错，只是不再检查）：
+以下字段是判据开关，取值必须精确；validator 对**写错与漏写一律报错**（拼写漂移不是"少个字段"，而是让判据落空）：
 
 - `result` ∈ {supported, refuted, unresolved}
 - `recommendation` ∈ {promote-to-finding, close, residual-gap}
@@ -411,14 +427,13 @@ rename——主代理以"JSON 能完整解析且校验通过"为准，写入中�
 - `reproducibility` ∈ {repeatable, conditional, single-observation, not-applicable}
 - `method`：§4.2 的 7 种 archetype 之一，原样保留派发值。它不是 validator 枚举，但改写会使异质性判据失效。
 
-写完先跑 `audit_init.py check --audit-id <AUDIT_ID> --unit <R_ID>`（见 §8）。
+可写执行者写完先跑 `audit_init.py check --audit-id <AUDIT_ID> --unit <R_ID>`（见 §8）；`ingest` 落盘时自动跑同一套检查。
 
 # Return
-只回报（不要把 JSON 正文再贴一遍）：写入路径、H/E id 与一句摘要、
+除完整 JSON 外，只回报：写入路径（只读执行者写"由主代理 ingest"）、H/E id 与一句摘要、
 supported/refuted/unresolved 数量、**其中超出本 Claim 范围的 H 有几条**、
 MAP-CORRECTION（如有）、覆盖与缺口（含你没看的地方）、实际 isolation、
 **临时区保留的文件清单与各自用途**（主代理据此复跑核对；实验区应已清空）。
-主代理会自行读取该文件校验。
 ```
 
 **派发前检查**：Q/R id、风险、方法、范围和截止条件已明确；highest/high 的最小 discrimination 已提供，normal 没有被迫填四项；shared facts 只含 DIRECT 事实，没有 Gate 或其它判断；operational notes 只含环境事实，不含目标工件事实、判断或预期答案；canonical destination 路径已在派发信息中给出且唯一。
@@ -613,7 +628,7 @@ Task: 在目标/scope 内自主寻找 material 风险，不受主代理 risk map
 
 **`scripts/fixtures/valid-ordinary-no-gate/state.json` 是最小合法形状，`scripts/fixtures/valid-audit-and-fix/` 是含 `fixWorkflow` 的完整形状。照抄起步，不要凭 schema 想象字段名。**
 
-嫌手写嵌套 JSON 容易手滑，可使用脚手架脚本生成合规骨架（`audit_init.py` 支持 `init`、`investigation`、`check`、`verification`，用法见 §8）。**`--scope-mode` 默认 `change`**，全项目审计必须显式传 `--scope-mode project`——照抄示例不传，会把仓库级审计静默建成变更级。
+嫌手写嵌套 JSON 容易手滑，可使用脚手架脚本生成合规骨架与归约草稿（`audit_init.py` 支持 `init`、`investigation`、`ingest`、`check`、`scaffold-reconciliations`、`sync-snapshot`、`verification`，用法见 §8）。**`--scope-mode` 默认 `change`**，全项目审计必须显式传 `--scope-mode project`——照抄示例不传，会把仓库级审计静默建成变更级。
 
 写状态最常见的错误不是漏填，而是**把可选字段一起填满**——`patternScope` 尤其典型（没做同类搜索却被填成 `UNKNOWN`，等于没有信息却多一个字段要维护）。可选字段只在真实存在时物化（不变量前提字段反之，漏填即错误且会让依赖它的不变量静默失效）：`gates`、`stop`+`scopeCoverage`、`independentValidationRequiredFor`、`priorContact`、`availableEvidence`、`supersession`/`supersedesAuditId`、`exploration`、`dispatches`、`decisionHistory`、`provenance`、`fixWorkflow`。
 
@@ -633,6 +648,8 @@ Task: 在目标/scope 内自主寻找 material 风险，不受主代理 risk map
   | `other` | `identity` | 其它有界不可变标识 |
 
   **未提交修复的身份**：工作树没有授权 commit 时，用 PRE/POST HEAD 加确定性内容 manifest 形成 `git-worktree`——不创建越权 commit，也不把未提交内容冒充 Git object。两个时点必须用同一 scope 与排除规则生成 manifest（逐项记录类型、模式、内容 SHA-256，并记录排除项），manifest 自身序列化后再算 SHA-256。
+
+  **`finalSha256` 只在修复定稿后写入一次，写入后必须同步工件**：调查阶段的工件绑定的是 `finalSha256` 仍为 null 的快照；一旦 state 填上真实值，这些工件的 `auditBinding` 就不再深度相等，全部违反不变量 3。顺序固定为——修复完成 → 算 final manifest → 更新 `state.json.audit.snapshot.finalSha256` → 跑 `audit_init.py sync-snapshot --audit-id <ID>` → 再跑 validator。该命令只把 null 的 `finalSha256` 填成 state 的值，且要求工件其余 snapshot 字段已与 state 一致；差异超出这一项的工件会被拒绝同步并报错，因为那属于另一个身份，必须重新取证而非改写绑定。
 - `sharedFacts` 的 `source` 必须是 `path:line` 或可重跑命令，**不得是记忆、结论或转述**——不可核对来源的 shared fact，其下游发现链不可信。共享事实不破坏隔离；共享 Hypothesis / Finding / Decision 才会。每条 shared fact **统一赋予稳定短 id `P<n>`**（与 `Q<n>` Claim / `R<n>` Unit / `F<n>` Finding / `G<n>` Residual / `X<n>` 探索轮同一套约定），调查者回报与 `MAP-CORRECTION` 都按这个 id 指认事实，不要用原文长句反复引用。
 - `sufficiency=MET` 需要：至少一个 verified Unit 产生 DIRECT Evidence；REQUIRED Claim 下**全部** Unit verified；`highest` 还要两个不同 method。拿不到就 `NOT-MET`，不能空集合放行。
 - `disposition` 是可选字段，仅在 `decision=CONFIRMED` 时才可显式写入；`CONDITIONAL`/`NEEDS-DECISION`/`REJECTED`/`PENDING` **一律不得物化该字段**（validator 见到即报错，包括显式写成 `OPEN`）——它们的缺口各自记在 `decisionHistory[]` 与报告的 Residual uncertainty 里。合法取值四个：`OPEN`（省略即此值，问题确认成立且未处置）、`REMEDIATING`（修复中）、`RESOLVED-VERIFIED`（已修复并验证）、`ACCEPTED-RISK`（有人签字承担）。后三者各有硬约束：`REMEDIATING` 必须有 `FIX` 批次；`RESOLVED-VERIFIED` 必须有引用其 `resolutionEvidence` 的 `PASSED VERIFY` 批次、所有请求的 Gate 均为 `DOES-NOT-APPLY`，且 Critical/High 另需 `resolutionChallenge`；`ACCEPTED-RISK` 是全局接受，必须在 Finding 根节点物化 `riskAcceptanceAuthorization` 对象（包含 `text`, `auditId`, `snapshot`，严禁出现 `target` 字段）；**一旦存在 Gate 就禁止使用全局接受**，须改用 per-target `gates[<target>].treatment="ACCEPTED"` 并在其内部物化 `authorization`（包含 `text`, `auditId`, `snapshot`, `target`）。Disposition 与 Decision 正交：`CONFIRMED` 表示问题**曾确认成立**，不表示当前仍存在或已修复。
@@ -851,14 +868,24 @@ python -B <skill-root>/scripts/audit_init.py init --audit-id <ID> --target "<TAR
 python -B <skill-root>/scripts/audit_init.py investigation --audit-id <ID> --unit R1 --claim Q1 \
     --method <ARCHETYPE> --executor <EXECUTOR>
 
-# 调查者写完、主代理接收前：预校验单个 investigation 工件
+# 只读执行者回报后：主代理落盘（落盘前自动跑 check，不通过则不落盘）
+python -B <skill-root>/scripts/audit_init.py ingest --audit-id <ID> --unit R1 --executor <EXECUTOR> \
+    --file <PATH>|-
+
+# 主代理接收前：预校验单个 investigation 工件
 python -B <skill-root>/scripts/audit_init.py check --audit-id <ID> --unit R1 [--executor <EXECUTOR>]
 python -B <skill-root>/scripts/validate_audit_state.py .audits/<auditId> \
     --investigation investigations/R1-<EXECUTOR>.json
 
+# 归约：按 H 的 result 生成 reconciliations[] 草稿（含 TODO 占位符）
+python -B <skill-root>/scripts/audit_init.py scaffold-reconciliations --audit-id <ID> [--unit R1] [--force]
+
 # 复核：为 Finding 生成 verification 骨架与第二挑战
 python -B <skill-root>/scripts/audit_init.py verification --audit-id <ID> --finding F1 \
     --method <ARCHETYPE> --checked-evidence R1-E1
+
+# audit-and-fix 修复定稿后：把 finalSha256 同步进此前绑定的工件
+python -B <skill-root>/scripts/audit_init.py sync-snapshot --audit-id <ID> [--dry-run]
 
 # 初始化、重要状态变更、最终输出前
 python -B <skill-root>/scripts/validate_audit_state.py .audits/<auditId>
@@ -866,20 +893,22 @@ python -B <skill-root>/scripts/validate_audit_state.py --state-root .audits   # 
 python -B <skill-root>/scripts/validate_audit_state.py --self-test <skill-root>/scripts/fixtures  # 校验 validator 本身
 ```
 
-`check` 与 `--investigation` 跑的是同一套工件侧检查（枚举闭合、result/recommendation 配对、auditBinding 与派发归属），把归约时才暴露的枚举漂移提前到调查者写完时。它只校验单个工件，不校验 state 的收口义务。
+`check`、`ingest` 与 `--investigation` 跑的是同一套工件侧检查（枚举闭合、result/recommendation 配对、auditBinding 与派发归属），把归约时才暴露的枚举漂移提前到调查者写完时。三者只校验单个工件，不读取 state 引用的其它工件——并行调查者写到一半的半截 JSON 不会击穿彼此的隔离。
 
-`audit_init.py` 同样是零依赖标准库（3.9+），提供 `init`、`investigation`、`check`、`verification` 四种能力。它自动绑定当前 state.json 的 snapshot 与 auditId 并创建配套工作区，不接管流程、不生成 Claim、不做任何事实判断——骨架对了，剩下的实质观察、证据与反证仍由代理负责。
+`audit_init.py` 同样是零依赖标准库（3.9+），提供 `init`、`investigation`、`ingest`、`check`、`scaffold-reconciliations`、`sync-snapshot`、`verification` 七种能力。它自动绑定当前 state.json 的 snapshot 与 auditId 并创建配套工作区，不接管流程、不生成 Claim、不做任何事实判断——骨架对了，剩下的实质观察、证据与反证仍由代理负责。
 
 **validator 只查 §5 的十二类不变量，不做表单校验**（字段形状以 `valid-*` fixture 为准；漏写未建模键会静默跳过，但驱动值拼错会硬报错以防不变量停跑）。
 
-驱动值拼写漂移对照（见脚本内 `DRIVER_ENUMS`，缺失与写错同等报错）：
+驱动值拼写漂移对照（取值集合见脚本内 `DRIVER_ENUMS`）：
 
-| 写法 | 判据 | 后果 |
+| 写法 | 判据 | 若不拦会怎样 |
 |---|---|---|
 | `phase: "final"` | 不等于 `FINAL` | 读作"不是 FINAL" → 全部收口义务对该实例静默豁免 |
 | `disconfirmationResult: "counter-supporte"` | 不等于 `counter-supported` | "反证成立的原假设必须关闭"这条不变量静默停跑 |
 | `strength: "ES3 "` | 不在 `{"ES3","ES4"}` | 该条证据的可复现性要求静默失效 |
 | `obligation: "required"` | 不等于 `REQUIRED` | 该 Claim 的 REQUIRED 完成义务全部免除 |
 | `status: "Verified"` | 不等于 `verified` | 该 Unit 的 DIRECT Evidence 要求静默失效 |
+
+写错一律报错。漏写只对驱动判据的字段报错（不变量 1 与工件侧枚举字段）；不驱动任何判据的字段（如 `audit.scopeMode`）缺失不报错，只做拼写漂移检查。
 
 **注**：PASS 只证明状态记录内部自洽，不证明事实判断正确；代码证据可信度由主代理直接复核负责。

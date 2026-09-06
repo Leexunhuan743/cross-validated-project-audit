@@ -85,13 +85,13 @@ python -B scripts/validate_audit_state.py --self-test scripts/fixtures
 
 它检查十二类不变量（完整清单见 `SKILL.md` §5）：身份与引用、不变量前提字段、契约字段、快照绑定、证据图、反证、结论强度、Finding-Gate 绑定、Gate 推导、批次新鲜度、覆盖闭合与探索、风险接受绑定。`--state-root` 另外检查 supersession 图的双向链接、唯一后继与无环。
 
-**它不做表单校验**——不检查枚举、id 格式、路径词法、目录布局、未建模字段。字段形状以 fixture 为准。代价是缺字段会静默跳过依赖它的检查，因此不变量 0、1 与 1b 专门守会让检查静默失效的情况：不变量 0 管身份与引用（重复 id 会静默覆盖、悬空引用会静默解析为空），不变量 1/1b 管驱动不变量判定的前提字段缺失及驱动枚举闭合，一律报错。
+**它不做表单校验**——不检查 id 格式、路径词法、目录布局、未建模字段。字段形状以 fixture 为准。代价是缺字段会静默跳过依赖它的检查，因此不变量 0、1 与 1b 专门守会让检查静默失效的情况，一律报错：不变量 0 管身份与引用（重复 id 会静默覆盖、悬空引用会静默解析为空），不变量 1 管驱动不变量判定的前提字段缺失（`phase`、`obligation`、`priority`、`status`、工件侧枚举字段），不变量 1b 管驱动枚举闭合（近似的枚举值不是"缺字段"，而是让判据落空，如 `phase: "final"` 会读作"不是 FINAL"从而豁免全部收口义务）。枚举取值集合见脚本内 `DRIVER_ENUMS`；不驱动任何判据的字段只做拼写漂移检查，缺失不报错。
 
 `--self-test` 跑 38 个 fixture（8 个正例 + 30 个反例）。改动 validator 后应跑一遍。
 
 validator 通过只证明状态内部一致，不证明代码事实和风险判断正确。
 
-辅助脚手架是 `scripts/audit_init.py`（零第三方依赖，Python 3.9+）：它提供骨架生成与工件预校验四类命令，解决"凭空手写多层嵌套 JSON 容易手滑与快照漂移"的痛点。它自动绑定当前不可变 snapshot，生成带 TODO 的合法骨架；它不接管流程、不生成 Claim、不做事实判断：
+辅助脚手架是 `scripts/audit_init.py`（零第三方依赖，Python 3.9+）：它提供骨架生成、工件落盘与预校验、归约草稿和快照同步七类命令，解决"凭空手写多层嵌套 JSON 容易手滑与快照漂移"的痛点。它自动绑定当前不可变 snapshot，生成带 TODO 的合法骨架；它不接管流程、不生成 Claim、不做事实判断：
 
 ```text
 # 1. 开局：生成 state.json 骨架并建好工作区
@@ -103,15 +103,25 @@ python -B scripts/audit_init.py init --audit-id <ID> --target "<TARGET>" --scope
 python -B scripts/audit_init.py investigation --audit-id <ID> --unit R1 --claim Q1 \
     --method <ARCHETYPE> --executor <EXECUTOR> [--clean]
 
-# 3. 预校验：调查者写完、主代理接收前，校验单个 investigation 工件
+# 3. 只读执行者回报后落盘（无写权限的探针型 agent 用这条，落盘前自动预检）
+python -B scripts/audit_init.py ingest --audit-id <ID> --unit R1 --executor <EXECUTOR> \
+    --file <PATH>|-
+
+# 4. 预校验：校验单个 investigation 工件，不读取其它并行工件
 python -B scripts/audit_init.py check --audit-id <ID> --unit R1 [--executor <EXECUTOR>]
 
-# 4. 复核：为主代理生成 verification 骨架及第二挑战结构
+# 5. 归约：按 H 的 result 生成 reconciliations[] 草稿（含 TODO 占位符）
+python -B scripts/audit_init.py scaffold-reconciliations --audit-id <ID> [--unit R1] [--force]
+
+# 6. audit-and-fix 修复定稿后：把 finalSha256 同步进此前绑定的工件
+python -B scripts/audit_init.py sync-snapshot --audit-id <ID> [--dry-run]
+
+# 7. 复核：为主代理生成 verification 骨架及第二挑战结构
 python -B scripts/audit_init.py verification --audit-id <ID> --finding F1 \
     --method <ARCHETYPE> --checked-evidence R1-E1
 ```
 
-`check` 跑的是 validator 的工件侧检查（枚举闭合、result/recommendation 配对、auditBinding 与派发归属），把归约时才暴露的枚举漂移提前到写完时。它只校验单个工件，不校验 state 的收口义务。
+`ingest`、`check` 与 `validate_audit_state.py --investigation` 跑的是同一套工件侧检查（枚举闭合、result/recommendation 配对、auditBinding 与派发归属），把归约时才暴露的枚举漂移提前到写完时。三者只校验单个工件，不读取 state 引用的其它工件——并行调查者写到一半的半截 JSON 不会击穿彼此的隔离。
 
 字段形状与真实填空仍可对照 `scripts/fixtures/` 示例；骨架生成后由代理填入实际代码行、观察事实与反证。
 
@@ -159,7 +169,7 @@ python -B scripts/audit_init.py verification --audit-id <ID> --finding F1 \
 | `references/failure-patterns.md` | 风险地图有盲区或需要 Hypothesis seeds（按需） |
 | `references/git-scoping.md` | 涉及复杂 git 范围、变基、提交历史切分（按需） |
 | `references/platform-runtime-patterns.md` | 涉及跨平台（Windows/Linux/macOS）、并发/异步、I/O 模式（按需） |
-| `scripts/audit_init.py` | 脚手架工具：一键生成 state/investigation/verification 合法骨架，并预校验单个 investigation 工件，Python 3.9+ |
+| `scripts/audit_init.py` | 脚手架工具：一键生成 state/investigation/verification 合法骨架，落盘只读执行者回报的工件、预校验单个工件、生成归约草稿与同步快照，Python 3.9+ |
 | `scripts/validate_audit_state.py` | 可选校验器，Python 3.9+ |
 
 §4 是参考手册、§6 是结论标准，两者都不属于主流程——建风险地图时按需查 §4，定稿判断时按需查 §6，有把握可跳过。必读部分（§1–§3、§5、§7–§8）约 410 行，另有前言 11 行。
@@ -170,5 +180,5 @@ python -B scripts/audit_init.py verification --audit-id <ID> --finding F1 \
 - 删除 19 列 coverage 和多份 live ledger；用 Claim registry + Verification Units + validator 降低状态漂移。
 - 只维护一个语义模型，不另建“简化模式”；普通审计只是省略未触发的高级字段。
 - **用最小模板代替精简协议**：可选字段本身不是负担，前提是没人逼你填满它。`scripts/fixtures/valid-ordinary-no-gate/state.json` 让"少写"成为默认路径，而不是要求每个人记住哪些字段能省。
-- **validator 只守不变量，不守形状**：形状由 fixture 示范。代价是漏写可能静默跳过检查，因此把"会让检查静默失效"的三种情况（重复 id、悬空引用、前提字段缺失）提升为硬错误——这是不变量检查，不是表单检查。
+- **validator 只守不变量，不守形状**：形状由 fixture 示范。代价是漏写可能静默跳过检查，因此把"会让检查静默失效"的四种情况（重复 id、悬空引用、前提字段缺失、驱动枚举漂移）提升为硬错误——这是不变量检查，不是表单检查。
 - 自动发现仍由客户端决定，但 frontmatter 已收窄到高风险或明确交叉验证请求，避免普通 review 被重型协议误触发。

@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 """Audit artifact scaffolding helper.
 
-Zero third-party dependencies (Python 3.9+ standard library). Provides scaffolding
-and pre-flight commands for primary agents and investigators, preventing hand-written
-nested JSON slips, driver enum mismatches, and auditBinding drift:
+Zero third-party dependencies (Python 3.9+ standard library). Provides scaffolding,
+filing, pre-flight, drafting and snapshot-sync commands for primary agents and
+investigators, preventing hand-written nested JSON slips, driver enum mismatches,
+and auditBinding drift:
 
   1. init: create initial state.json skeleton and prepare directory layout
      python -B scripts/audit_init.py init --audit-id <ID> --target "<TARGET>" --scope "<SCOPE>" ...
@@ -12,11 +13,20 @@ nested JSON slips, driver enum mismatches, and auditBinding drift:
      python -B scripts/audit_init.py investigation --audit-id <ID> --unit R1 --claim Q1 \
          --method implementation-trace --executor agent-a
 
-  3. check: pre-flight check one investigation artifact before the lead agent
-     accepts it (same artifact-side checks the validator runs at reconciliation)
+  3. ingest: file an artifact returned by a read-only investigator
+     python -B scripts/audit_init.py ingest --audit-id <ID> --unit R1 --executor agent-a \
+         --file returned.json
+
+  4. check: pre-flight check one investigation artifact in isolation
      python -B scripts/audit_init.py check --audit-id <ID> --unit R1 [--executor agent-a]
 
-  4. verification: scaffold a verification artifact for a Finding and second challenge
+  5. scaffold-reconciliations: draft reconciliations[] from accepted hypotheses
+     python -B scripts/audit_init.py scaffold-reconciliations --audit-id <ID> [--unit R1]
+
+  6. sync-snapshot: fill the POST-fix manifest into artifacts bound before it existed
+     python -B scripts/audit_init.py sync-snapshot --audit-id <ID> [--dry-run]
+
+  7. verification: scaffold a verification artifact for a Finding and second challenge
      python -B scripts/audit_init.py verification --audit-id <ID> --finding F1 \
          --method implementation-trace --checked-evidence R1-E1
 
@@ -113,11 +123,12 @@ def atomic_write_json(target: Path, data: dict, force: bool = False) -> None:
 def build_state(args: argparse.Namespace) -> dict:
     snapshot = None
     if args.snapshot_kind:
+        # Every field of the kind is declared, unset ones as explicit null: an
+        # omitted key compares unequal to an artifact's null, which would fail
+        # the binding check for an identity that is merely not yet determined.
         snapshot = {"kind": args.snapshot_kind}
         for field in SNAPSHOT_FIELDS[args.snapshot_kind]:
-            value = getattr(args, f"snapshot_{field}", None)
-            if value is not None:
-                snapshot[field] = value
+            snapshot[field] = getattr(args, f"snapshot_{field}", None)
 
     confidence = getattr(args, "confidence", None) or ("MEDIUM" if args.basis == "ASSUMED" else "HIGH")
     scope_res = {"basis": args.basis, "confidence": confidence}
@@ -293,7 +304,7 @@ def cmd_investigation(args: argparse.Namespace) -> int:
         hypotheses = [
             {
                 "id": hypothesis_id,
-                "statement": "TODO: material, testable suspicion statement",
+                "statement": "TODO: 怀疑句——存在缺陷：<具体缺陷>；禁止写成'X 是正确的'",
                 "potentialImpact": "TODO: impact if true",
                 "conditions": "TODO: trigger conditions or input bounds",
                 "counterHypothesis": "TODO: strongest realistic safe explanation",
@@ -358,7 +369,7 @@ def cmd_investigation(args: argparse.Namespace) -> int:
     print(f"  2. place probe / reproduction scripts into probes/{unit_id}-{args.executor}/")
     print(f"  3. run: audit_init.py check --audit-id {state['audit']['id']} --unit {unit_id}")
     print(f"  4. advance Unit to reported in state.json and cite this file")
-    print("\nenums -- misspelling or omitting any of these stops the invariant that reads it:")
+    print("\nenums -- these drive the invariants, so a misspelling or an omission is an error:")
     print("  result ∈ {supported, refuted, unresolved}")
     print("  recommendation ∈ {promote-to-finding, close, residual-gap}")
     print("  disconfirmationResult ∈ {counter-refuted, counter-supported, unresolved}")
@@ -370,7 +381,7 @@ def cmd_investigation(args: argparse.Namespace) -> int:
 
 
 # ---------------------------------------------------------------------------
-# Command 3: check (pre-flight validation of one investigation artifact)
+# Command 3: ingest (file an artifact returned by a read-only investigator)
 # ---------------------------------------------------------------------------
 
 def load_validator():
@@ -388,26 +399,88 @@ def load_validator():
     return module
 
 
-def cmd_check(args: argparse.Namespace) -> int:
-    """Applies the artifact-side enum, disconfirmation and binding checks before
-    the lead agent accepts the artifact, so enum drift surfaces at write time
-    rather than at reconciliation."""
+def cmd_ingest(args: argparse.Namespace) -> int:
+    """Files an artifact returned by a read-only investigator, which cannot
+    write to its own workspace. The lead agent captures the returned JSON to a
+    file (or pipes it on stdin) and files it here; the artifact is checked
+    before it is written, so a rejected return never reaches the state."""
     try:
         audit_dir = resolve_audit_dir(args.state_root, args.audit_id, args.audit_dir)
     except Exception as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 2
-    if not SAFE_ID.match(args.unit):
-        print(f"error: --unit must match [A-Za-z0-9_-]+ (got {args.unit!r})", file=sys.stderr)
+    for name, value in (("unit", args.unit), ("executor", args.executor)):
+        if not SAFE_ID.match(value):
+            print(f"error: --{name} must match [A-Za-z0-9_-]+ (got {value!r})", file=sys.stderr)
+            return 2
+
+    raw = sys.stdin.read() if args.file == "-" else Path(args.file).read_text(encoding="utf-8")
+    try:
+        data = json.loads(raw)
+    except json.JSONDecodeError as exc:
+        print(f"error: returned content is not parseable JSON: {exc}", file=sys.stderr)
+        return 2
+    if not isinstance(data, dict):
+        print("error: returned content must be a JSON object", file=sys.stderr)
+        return 2
+    if data.get("unitId") != args.unit:
+        print(f"error: artifact declares unitId {data.get('unitId')!r}, expected {args.unit!r}; "
+              "refusing to file it under a unit it does not belong to", file=sys.stderr)
         return 2
 
-    if args.executor:
-        targets = [f"investigations/{args.unit}-{args.executor}.json"]
+    rel = f"investigations/{args.unit}-{args.executor}.json"
+    target = audit_dir / rel
+    if target.exists() and not args.force:
+        print(f"error: {rel} already exists; pass --force to overwrite", file=sys.stderr)
+        return 2
+    # The check runs on the filed path, so write first and roll back on
+    # rejection. A previous filing is parked, not lost, if the new one fails.
+    backup = target.with_suffix(".json.bak")
+    had_previous = target.exists()
+    try:
+        target.parent.mkdir(parents=True, exist_ok=True)
+        if had_previous:
+            target.replace(backup)
+        tmp = target.with_suffix(".json.tmp")
+        tmp.write_text(json.dumps(data, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+        tmp.replace(target)
+    except OSError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        if had_previous:
+            backup.replace(target)
+        return 2
+
+    failed = run_check(audit_dir, args.unit, args.executor)
+    if failed:
+        target.unlink(missing_ok=True)
+        if had_previous:
+            backup.replace(target)
+        print(f"rejected: {rel} was not filed", file=sys.stderr)
+        return failed
+    backup.unlink(missing_ok=True)
+
+    for sub in ("probes", "scratch"):
+        (audit_dir / sub / f"{args.unit}-{args.executor}").mkdir(parents=True, exist_ok=True)
+    print(f"filed {rel}")
+    print(f"next: advance Unit {args.unit} to reported in state.json and cite this file")
+    return 0
+
+
+# ---------------------------------------------------------------------------
+# Command 4: check (pre-flight validation of one investigation artifact)
+# ---------------------------------------------------------------------------
+
+
+def run_check(audit_dir: Path, unit: str, executor: str | None) -> int:
+    """Checks one unit's investigation artifacts in isolation. Siblings are
+    never read: a parallel investigator mid-write leaves half-parsed JSON."""
+    if executor:
+        targets = [f"investigations/{unit}-{executor}.json"]
     else:
         investigations = audit_dir / "investigations"
-        matches = sorted(p.name for p in investigations.glob(f"{args.unit}-*.json")) if investigations.is_dir() else []
+        matches = sorted(p.name for p in investigations.glob(f"{unit}-*.json")) if investigations.is_dir() else []
         if not matches:
-            print(f"error: no investigations/{args.unit}-*.json under {audit_dir}", file=sys.stderr)
+            print(f"error: no investigations/{unit}-*.json under {audit_dir}", file=sys.stderr)
             return 2
         targets = [f"investigations/{name}" for name in matches]
 
@@ -423,8 +496,216 @@ def cmd_check(args: argparse.Namespace) -> int:
     return 1 if failed else 0
 
 
+def cmd_check(args: argparse.Namespace) -> int:
+    """Applies the artifact-side enum, disconfirmation and binding checks before
+    the lead agent accepts the artifact, so enum drift surfaces at write time
+    rather than at reconciliation."""
+    try:
+        audit_dir = resolve_audit_dir(args.state_root, args.audit_id, args.audit_dir)
+    except Exception as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
+    if not SAFE_ID.match(args.unit):
+        print(f"error: --unit must match [A-Za-z0-9_-]+ (got {args.unit!r})", file=sys.stderr)
+        return 2
+    return run_check(audit_dir, args.unit, args.executor)
+
+
 # ---------------------------------------------------------------------------
-# Command 4: verification (scaffold verification artifact)
+# Command 5: scaffold-reconciliations (draft reconciliations[] from hypotheses)
+# ---------------------------------------------------------------------------
+
+def cmd_scaffold_reconciliations(args: argparse.Namespace) -> int:
+    """Drafts `reconciliations[]` from each accepted investigation's
+    hypotheses, so mapping dozens of them by hand is not the bottleneck.
+
+    The draft carries placeholder finding/residual ids, which the validator
+    rejects as dangling. That is deliberate: a draft that passes would let the
+    lead agent ship the mapping without ever adjudicating it.
+    """
+    try:
+        audit_dir = resolve_audit_dir(args.state_root, args.audit_id, args.audit_dir)
+        state = load_state(audit_dir)
+    except Exception as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
+
+    if args.unit and not any(
+        isinstance(u, dict) and u.get("id") == args.unit for u in state.get("verificationUnits") or []
+    ):
+        print(f"error: no Verification Unit {args.unit!r} in state.json", file=sys.stderr)
+        return 2
+
+    written, skipped, failed = [], [], 0
+    for unit in state.get("verificationUnits") or []:
+        if not isinstance(unit, dict):
+            continue
+        unit_id = unit.get("id")
+        if args.unit and unit_id != args.unit:
+            continue
+        rel = unit.get("investigationFile")
+        if not isinstance(rel, str):
+            skipped.append(f"{unit_id}: no investigationFile")
+            continue
+        if unit.get("reconciliations") and not args.force:
+            skipped.append(f"{unit_id}: already has reconciliations; pass --force to redraft")
+            continue
+        try:
+            data = json.loads((audit_dir / rel).read_text(encoding="utf-8"))
+        except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+            print(f"error: {rel}: unreadable: {exc}", file=sys.stderr)
+            failed += 1
+            continue
+        polarity = {e.get("id"): e.get("polarity") for e in data.get("evidence") or [] if isinstance(e, dict)}
+        drafted = []
+        for hyp in data.get("hypotheses") or []:
+            if not isinstance(hyp, dict) or not isinstance(hyp.get("id"), str):
+                continue
+            result = hyp.get("result")
+            if result not in ("supported", "refuted", "unresolved"):
+                print(f"error: {rel}: hypothesis {hyp.get('id')} has result {result!r}; "
+                      "run `audit_init.py check` on the artifact first", file=sys.stderr)
+                failed += 1
+                continue
+            refs = [r for r in hyp.get("evidenceRefs") or [] if isinstance(r, str)]
+            entry = {"hypothesisId": hyp["id"]}
+            if result == "supported":
+                wanted = "supports"
+                entry["result"] = "FINDING"
+                entry["findingId"] = "TODO-F<n>"
+            elif result == "refuted":
+                wanted = "refutes"
+                entry["result"] = "REFUTED"
+            else:
+                wanted = None
+                entry["result"] = "RESIDUAL-GAP"
+                entry["residualRiskId"] = "TODO-G<n>"
+            # RESIDUAL-GAP carries no polarity requirement, so it keeps every
+            # referenced Evidence as-is instead of filtering on a null match.
+            matching = [r for r in refs if polarity.get(r) == wanted] if wanted else []
+            entry["evidenceRefs"] = matching or refs
+            drafted.append(entry)
+        unit["reconciliations"] = drafted
+        written.append(f"{unit_id}: {len(drafted)} entr(ies)")
+
+    if failed:
+        return 1
+    if not written:
+        for line in skipped:
+            print(f"skipped {line}")
+        return 0
+    state["updatedAt"] = now_iso()
+    try:
+        atomic_write_json(audit_dir / "state.json", state, force=True)
+    except Exception as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
+    for line in written:
+        print(f"drafted {line}")
+    for line in skipped:
+        print(f"skipped {line}")
+    print("\nplaceholders TODO-F<n>/TODO-G<n> are dangling on purpose; replace them with real "
+          "Finding/residual ids, then run the validator")
+    return 0
+
+
+# ---------------------------------------------------------------------------
+# Command 6: sync-snapshot (fill the POST-fix manifest into bound artifacts)
+# ---------------------------------------------------------------------------
+
+def cmd_sync_snapshot(args: argparse.Namespace) -> int:
+    """Fills the POST-fix manifest into artifacts that were bound before it
+    existed. In `git-worktree` the final manifest is null until the fix lands,
+    so every artifact filed during the PRE-fix investigation binds a snapshot
+    whose finalSha256 is still null; once state carries the real value, those
+    bindings no longer deep-equal and every artifact fails invariant 3.
+
+    Only a null finalSha256 is filled, and only when every other snapshot field
+    in the artifact already equals the state's. That keeps the command from
+    re-binding an artifact that belongs to a different instance.
+    """
+    try:
+        audit_dir = resolve_audit_dir(args.state_root, args.audit_id, args.audit_dir)
+        state = load_state(audit_dir)
+    except Exception as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
+    snapshot = state.get("audit", {}).get("snapshot")
+    if not isinstance(snapshot, dict) or snapshot.get("kind") != "git-worktree" or not snapshot.get("finalSha256"):
+        print("error: state snapshot must be git-worktree with a non-empty finalSha256; "
+              "there is nothing to fill", file=sys.stderr)
+        return 2
+
+    targets = []
+    for unit in state.get("verificationUnits") or []:
+        rel = (unit or {}).get("investigationFile")
+        if isinstance(rel, str):
+            targets.append(rel)
+    for finding in state.get("findings") or []:
+        rel = (finding or {}).get("verificationFile")
+        if isinstance(rel, str):
+            targets.append(rel)
+    if not targets:
+        print("error: state references no artifacts", file=sys.stderr)
+        return 2
+
+    changed, skipped, failed = [], [], 0
+    for rel in targets:
+        path = audit_dir / rel
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+            print(f"error: {rel}: unreadable: {exc}", file=sys.stderr)
+            failed += 1
+            continue
+        binding = data.get("auditBinding")
+        if not isinstance(binding, dict):
+            print(f"error: {rel}: auditBinding is missing; re-take the Evidence instead of re-binding it",
+                  file=sys.stderr)
+            failed += 1
+            continue
+        current = binding.get("snapshot")
+        if not isinstance(current, dict):
+            print(f"error: {rel}: auditBinding.snapshot is missing or not an object", file=sys.stderr)
+            failed += 1
+            continue
+        if current == snapshot:
+            skipped.append(rel)
+            continue
+        # Everything except the null finalSha256 must already agree.
+        probe = dict(current)
+        probe["finalSha256"] = snapshot["finalSha256"]
+        if current.get("finalSha256") is not None or probe != snapshot:
+            print(f"error: {rel}: snapshot differs in more than a null finalSha256 "
+                  f"({current} vs {snapshot}); it belongs to another identity and must not be re-bound",
+                  file=sys.stderr)
+            failed += 1
+            continue
+        data["auditBinding"]["snapshot"] = dict(snapshot)
+        if args.dry_run:
+            changed.append(rel)
+            continue
+        try:
+            atomic_write_json(path, data, force=True)
+        except Exception as exc:
+            print(f"error: {rel}: {exc}", file=sys.stderr)
+            failed += 1
+            continue
+        changed.append(rel)
+
+    for rel in changed:
+        print(f"{'would sync' if args.dry_run else 'synced'} {rel}")
+    for rel in skipped:
+        print(f"already current {rel}")
+    if failed:
+        print(f"{failed} artifact(s) not synced", file=sys.stderr)
+        return 1
+    print(f"{len(changed)} synced, {len(skipped)} already current")
+    return 0
+
+
+# ---------------------------------------------------------------------------
+# Command 7: verification (scaffold verification artifact)
 # ---------------------------------------------------------------------------
 
 def cmd_verification(args: argparse.Namespace) -> int:
@@ -512,7 +793,8 @@ def cmd_verification(args: argparse.Namespace) -> int:
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="audit_init.py",
-        description="Audit artifact scaffolding helper (state.json, investigation, and verification)",
+        description="Audit scaffolding helper: state.json, investigation, ingest, check, "
+                    "scaffold-reconciliations, sync-snapshot and verification",
     )
     sub = parser.add_subparsers(dest="command", required=True)
 
@@ -557,7 +839,19 @@ def build_parser() -> argparse.ArgumentParser:
     inv.add_argument("--force", action="store_true", help="overwrite existing artifact")
     inv.set_defaults(func=cmd_investigation)
 
-    # 3. check
+    # 3. ingest
+    ing = sub.add_parser("ingest", help="file an artifact returned by a read-only investigator")
+    ing.add_argument("--audit-id", help="audit id (searches in .audits/<audit-id>)")
+    ing.add_argument("--audit-dir", help="explicit audit instance directory path")
+    ing.add_argument("--state-root", default=".audits", help="state root, default: .audits")
+    ing.add_argument("--unit", required=True, help="Verification Unit id (e.g. R1)")
+    ing.add_argument("--executor", required=True, help="executor identifier (e.g. agent-a)")
+    ing.add_argument("--file", required=True, metavar="PATH",
+                     help="file holding the returned JSON; '-' reads stdin")
+    ing.add_argument("--force", action="store_true", help="overwrite existing artifact")
+    ing.set_defaults(func=cmd_ingest)
+
+    # 4. check
     chk = sub.add_parser("check", help="pre-flight check an investigation artifact (investigations/<unit>-<executor>.json)")
     chk.add_argument("--audit-id", help="audit id (searches in .audits/<audit-id>)")
     chk.add_argument("--audit-dir", help="explicit audit instance directory path")
@@ -566,7 +860,24 @@ def build_parser() -> argparse.ArgumentParser:
     chk.add_argument("--executor", help="executor identifier; omit to check every artifact for this unit")
     chk.set_defaults(func=cmd_check)
 
-    # 4. verification
+    # 5. scaffold-reconciliations
+    rec = sub.add_parser("scaffold-reconciliations", help="draft reconciliations[] from accepted investigation hypotheses")
+    rec.add_argument("--audit-id", help="audit id (searches in .audits/<audit-id>)")
+    rec.add_argument("--audit-dir", help="explicit audit instance directory path")
+    rec.add_argument("--state-root", default=".audits", help="state root, default: .audits")
+    rec.add_argument("--unit", help="draft for this Unit only (default: every Unit with an accepted artifact)")
+    rec.add_argument("--force", action="store_true", help="redraft Units that already have reconciliations")
+    rec.set_defaults(func=cmd_scaffold_reconciliations)
+
+    # 6. sync-snapshot
+    sync = sub.add_parser("sync-snapshot", help="fill the POST-fix manifest into artifacts bound before it existed")
+    sync.add_argument("--audit-id", help="audit id (searches in .audits/<audit-id>)")
+    sync.add_argument("--audit-dir", help="explicit audit instance directory path")
+    sync.add_argument("--state-root", default=".audits", help="state root, default: .audits")
+    sync.add_argument("--dry-run", action="store_true", help="report what would change without writing")
+    sync.set_defaults(func=cmd_sync_snapshot)
+
+    # 7. verification
     ver = sub.add_parser("verification", help="scaffold verification artifact (verification/<finding>.json)")
     ver.add_argument("--audit-id", help="audit id (searches in .audits/<audit-id>)")
     ver.add_argument("--audit-dir", help="explicit audit instance directory path")
