@@ -118,7 +118,10 @@ def load_form(dir_, unit):
 
 
 def has_slot(doc, index):
-    return any(slot.get("slot") == index for slot in doc.get("slots", []))
+    # 槽位号在 slots[] 里是 int，而 evidence{} / anchors{} 的键是 str（JSON 对象键）。
+    # 不做归一，"evidence 里有指向不存在槽位的记录"会把每一条正常记录都报成幽灵。
+    wanted = str(index)
+    return any(str(slot.get("slot")) == wanted for slot in doc.get("slots", []))
 
 
 def find_slot(doc, index):
@@ -258,12 +261,27 @@ def anchor_slot(audit, slot, problems):
     if not PATHLINE_RE.match(where):
         return [], checked
     path_part, _, line_part = where.rpartition(":")
-    target = Path(audit["repoRoot"]) / path_part
+    root = Path(audit["repoRoot"]).resolve()
+    target = (root / path_part).resolve()
     checked += 1
+    # 锚点会被写进审计工件，而 where 是子进程填的：一旦允许仓库外路径，填
+    # `C:/Users/x/.ssh/id_rsa:1` 就能把任意文件内容抄进报告（实测可读 win.ini）。
+    if not target.is_relative_to(root):
+        problems.append("slot %s: where 必须指向仓库内的文件，不能越出 %s：%s"
+                        % (slot["slot"], root, path_part))
+        return [], checked
     if not target.exists():
         problems.append("slot %s: where 指向的文件不存在：%s" % (slot["slot"], path_part))
         return [], checked
-    lines = target.read_text(encoding="utf-8", errors="replace").split("\n")
+    if not target.is_file():
+        problems.append("slot %s: where 指向的不是文件：%s" % (slot["slot"], path_part))
+        return [], checked
+    try:
+        text = target.read_text(encoding="utf-8", errors="replace")
+    except OSError as exc:
+        problems.append("slot %s: where 指向的文件读不出来（%s）：%s" % (slot["slot"], exc, path_part))
+        return [], checked
+    lines = text.split("\n")
     if "-" in line_part:
         first, last = line_part.split("-", 1)
     else:
@@ -688,8 +706,19 @@ def cmd_decide(args):
             "（impact × likelihood × reachability × recoverability 四维怎么算的）。" % (hint, args.severity))
 
     entries = load_json(audit_paths(args.dir)["decisions"])
+    previous = [d for d in entries["decisions"]
+                if d.get("unit") == args.unit and d.get("slot") == args.slot]
+    if previous and not args.revise:
+        old = previous[-1]
+        die("该槽位已有裁决：%s / %s（%s）。裁决是门禁结论，覆盖必须显式——"
+            "要改写就加 --revise（旧条目会进 history 留痕）。"
+            % (old.get("decision"), old.get("severity") or "未定级", str(old.get("why"))[:60]))
+    if previous:
+        history = entries.setdefault("history", [])
+        history.extend(previous)
+        note("已把 %d 条旧裁决移入 history 留痕" % len(previous))
     entries["decisions"] = [d for d in entries["decisions"]
-                            if not (d["unit"] == args.unit and d["slot"] == args.slot)]
+                            if not (d.get("unit") == args.unit and d.get("slot") == args.slot)]
     entries["decisions"].append({
         "unit": args.unit,
         "slot": args.slot,
@@ -745,11 +774,22 @@ def cmd_check(args):
             if entry.get("control") and entry.get("testCaughtMutation") is False:
                 problems.append("%s 的阳性对照失败（改坏了却没被捕获）：`%s`"
                                 % (unit, str(entry.get("cmd"))[:60]))
+        # 槽位级变异同样要查：一条"本该被抓住却没被抓住"的阳性对照留在槽位里，
+        # 轻则读的人以为装置有效，重则整条判据的判别力是假的（盲化复核真抓到过这种）。
+        for slot_no, mutations in (doc.get("mutations") or {}).items():
+            for mut in mutations:
+                checked += 1
+                if mut.get("control") and mut.get("testCaughtMutation") is False:
+                    problems.append("%s slot %s 的阳性对照失败（改坏了却没被捕获）：`%s`"
+                                    % (unit, slot_no, str(mut.get("cmd"))[:60]))
 
     decisions = load_json(audit_paths(args.dir)["decisions"])
     seen = set()
     for entry in decisions.get("decisions", []):
         checked += 1
+        if "unit" not in entry or "slot" not in entry:
+            problems.append("裁决条目缺少 unit/slot 键，无法定位：%s" % json.dumps(entry, ensure_ascii=False)[:80])
+            continue
         key = (entry["unit"], entry["slot"])
         if key in seen:
             problems.append("重复裁决：%s slot %s" % key)
@@ -765,13 +805,29 @@ def cmd_check(args):
             checked += 1
             if (unit, slot["slot"]) not in seen:
                 problems.append("未裁决：%s slot %s（%s）" % (unit, slot["slot"], str(slot.get("title"))[:60]))
+        # 幽灵桶：证据挂在根本不存在的槽位上，报告里看不见它，check 却一声不响。
+        for bucket in ("evidence", "mutations", "anchors"):
+            for key in (doc.get(bucket) or {}):
+                checked += 1
+                if not has_slot(doc, key):
+                    problems.append("%s 的 %s 里有指向不存在槽位的记录：slot %s"
+                                    % (unit, bucket, key))
 
     for entry in decisions.get("decisions", []):
+        if "unit" not in entry or "slot" not in entry:
+            continue                      # 上面已经记成问题，这里不再二次崩
         unit, slot_no = entry["unit"], entry["slot"]
         doc = form_docs.get(unit, {})
         evidence = slot_evidence(doc, slot_no)
         decision = entry["decision"]
-        kind = str(entry.get("kind") or "").strip()
+        # kind 以**当前槽位**为准（裁决条目里那份是裁决时的快照）；两者不一致本身就是漂移。
+        target_slot = find_slot(doc, slot_no) if has_slot(doc, slot_no) else None
+        kind = str((target_slot or {}).get("kind") or "").strip()
+        recorded_kind = str(entry.get("kind") or "").strip()
+        checked += 1
+        if recorded_kind and kind and recorded_kind != kind:
+            problems.append("槽位 kind 与裁决时记录的不一致（裁决时 %s，现在 %s）：%s slot %s"
+                            % (recorded_kind, kind, unit, slot_no))
 
         checked += 1
         if decision in ("CONFIRMED", "VERIFIED") and not evidence:
@@ -826,8 +882,8 @@ def cmd_note(args):
     audit = load_audit(args.dir)
     entries = audit.setdefault("notes", {"disclosure": [], "residual": []})
     entries.setdefault(args.kind, []).append({"text": args.text, "at": now()})
-    audit_paths(args.dir)["audit"].write_text(
-        json.dumps(audit, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    # 这里曾经直接 write_text：写一半被杀会把 audit.json 截成 0 字节，整个实例不可读（实测）。
+    save_json(audit_paths(args.dir)["audit"], audit)
     note("已记录 %s（累计 %d 条）：%s" % (args.kind, len(entries[args.kind]), args.text[:70]))
 
 
@@ -1196,6 +1252,78 @@ def cmd_dispatch(args):
              "`brief --unit %s --task \"...\"`。" % (args.unit, args.unit))
 
 
+def backup_paths(dir_, target):
+    """变异前把原文另存一份，返回 (manifest, bytes)。
+
+    还原只写在 `finally` 里——那对 `TerminateProcess`/`taskkill` 无效，而 mutate 改的是
+    **用户的真实仓库**。一次被强杀的 mutate 会把文件永久留在变异态（实测复现）。所以：
+    变异前先落盘原文 + 清单，任何一条后续命令启动时都会检查并自动还原。
+    """
+    key = hashlib.sha256(str(target).encode("utf-8")).hexdigest()[:16]
+    d = audit_paths(dir_)["dir"] / "backups"
+    d.mkdir(parents=True, exist_ok=True)
+    return d / (key + ".json"), d / (key + ".bin")
+
+
+def pid_alive(pid):
+    """判断 pid 是否还活着。
+
+    注意：Windows 上 `os.kill(pid, 0)` 不是"探活"——它会真的把进程 TerminateProcess 掉，
+    所以这里必须走 tasklist。
+    """
+    try:
+        pid = int(pid)
+    except (TypeError, ValueError):
+        return False
+    if pid <= 0:
+        return False
+    if os.name == "nt":
+        try:
+            out = subprocess.run(["tasklist", "/FI", "PID eq %d" % pid, "/NH"],
+                                 capture_output=True, text=True, timeout=20).stdout or ""
+        except Exception:  # noqa: BLE001 - 探活失败时按"已死"处理会误还原，按"活着"更安全
+            return True
+        return str(pid) in out
+    try:
+        os.kill(pid, 0)
+    except OSError:
+        return False
+    return True
+
+
+def recover_pending_mutations(dir_):
+    """任何命令启动时先自愈：上次被中断的变异必须在这里还原掉。
+
+    清单还在 = 上一轮没收尾（或者被杀在还原之前）。**但正在跑的 mutate 不能被别人回滚**：
+    并行审计里另一个调查者跑任何一条命令都会触发这里，若不做存活判断，就会把别人正在做的
+    变异取证中途还原掉——那会直接伪造出"改坏了检查仍然通过"的假结论。
+    """
+    d = Path(dir_) / "backups"
+    if not d.is_dir():
+        return
+    for man in sorted(d.glob("*.json")):
+        binp = man.with_suffix(".bin")
+        if not binp.exists():
+            man.unlink(missing_ok=True)
+            continue
+        try:
+            info = json.loads(man.read_text(encoding="utf-8"))
+            target = Path(info["file"])
+        except Exception:  # noqa: BLE001 - 清单本身坏了也不该拖死命令
+            man.unlink(missing_ok=True)
+            binp.unlink(missing_ok=True)
+            continue
+        if pid_alive(info.get("pid")):
+            continue                      # 另一个进程正在变异这个文件，别碰
+        if target.exists():
+            current = hashlib.sha256(target.read_bytes()).hexdigest()
+            if current != info.get("sha256"):
+                target.write_bytes(binp.read_bytes())
+                note("警告：上一次 mutate 未收尾（进程被强杀），已自动还原 %s" % target)
+        man.unlink(missing_ok=True)
+        binp.unlink(missing_ok=True)
+
+
 def cmd_mutate(args):
     """变异判别力记录：改坏一处 → 跑指定命令 → 还原并校验哈希。
 
@@ -1237,8 +1365,22 @@ def cmd_mutate(args):
     env.setdefault("PYTHONIOENCODING", "utf-8")
     exit_code, out, err = None, "", ""
     restored_ok = False
+
+    # 清单文件就是锁：O_EXCL 建不出来说明同一文件上已经有一个未收尾的变异。
+    man, binp = backup_paths(args.dir, target)
     try:
-        target.write_text(mutated, encoding="utf-8")
+        fd = os.open(str(man), os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+    except FileExistsError:
+        die("这个文件上还有一个未收尾的变异（%s）。先随便跑一条命令，工具会在启动时自动还原；"
+            "确认过文件无误再删掉该清单。" % man)
+    with os.fdopen(fd, "w", encoding="utf-8") as fh:
+        json.dump({"file": str(target), "sha256": original_sha, "pid": os.getpid(), "at": now()},
+                  fh, ensure_ascii=False)
+    binp.write_bytes(original_bytes)
+
+    try:
+        # 必须按字节写：write_text 在 Windows 会把 \n 翻成 \r\n，变异就不再是"只改了这一处"。
+        target.write_bytes(mutated.encode("utf-8"))
         try:
             if use_shell:
                 proc = subprocess.run(cmd_text, shell=True, cwd=audit["repoRoot"], env=env,
@@ -1254,6 +1396,10 @@ def cmd_mutate(args):
     finally:
         target.write_bytes(original_bytes)
         restored_ok = hashlib.sha256(target.read_bytes()).hexdigest() == original_sha
+        if restored_ok:
+            # 还原成功才清备份；还原失败要留着，下一条命令启动时会再试一次。
+            man.unlink(missing_ok=True)
+            binp.unlink(missing_ok=True)
 
     caught = exit_code not in (0, None)
     record = {
@@ -1300,6 +1446,14 @@ def cmd_prune(args):
     path = form_file(args.dir, args.unit)
     doc = ensure_arrays(load_json(path))
     slot = find_slot(doc, args.slot)
+
+    if args.move_to is not None:
+        # 搬到不存在的槽位 = 把记录塞进报告里看不见的幽灵桶（实测 check 还报 0 问题）。
+        if args.move_to == args.slot:
+            die("--move-to 不能指向被删的那个槽位自身，否则记录会直接蒸发")
+        if not has_slot(doc, args.move_to):
+            die("--move-to 指向的槽位不存在：%s（现有槽位 %s）"
+                % (args.move_to, "、".join(str(s["slot"]) for s in doc["slots"]) or "无"))
 
     moved = 0
     # 只搬「执行记录」（证据 + 变异）到目标容器；锚点是文件摘录、没有命令，
@@ -1858,6 +2012,8 @@ def build_parser():
     p.add_argument("--allow-static", action="store_true")
     p.add_argument("--allow-unchallenged", action="store_true",
                    help="High/Critical 的 CONFIRMED 跳过盲化复核（必须写进 --why）")
+    p.add_argument("--revise", action="store_true",
+                   help="改写已有裁决（旧条目进 history 留痕；不加这个会被拒绝）")
     p.add_argument("--token")
     p.set_defaults(func=cmd_decide)
 
@@ -1938,6 +2094,11 @@ def main():
         except Exception:  # noqa: BLE001 - 老解释器没有 reconfigure
             pass
     args = build_parser().parse_args()
+    # 任何命令启动前先自愈：上次被强杀的 mutate 可能把用户的文件留在变异态。
+    try:
+        recover_pending_mutations(args.dir)
+    except Exception as exc:  # noqa: BLE001 - 自愈失败不该阻断命令，但要喊出来
+        note("警告：检查未收尾的变异时出错：%s" % exc)
     args.func(args)
 
 
