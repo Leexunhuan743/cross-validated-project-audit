@@ -10,6 +10,6 @@ policy:
   - codex
   - api
   - atlas
-  # false：本协议会在 .audits/ 建档、派发多路调查并运行校验器，成本很高。
+  # false：本协议会在 .audit-forms/ 建档、派发多路只读调查并代跑证据命令，成本很高。
   # 隐式调用会让「帮我看看这段代码」这类轻量请求被误判为重型审计。
   allow_implicit_invocation: false

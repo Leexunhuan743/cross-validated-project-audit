@@ -1,0 +1,53 @@
+{
+  "template": "decision",
+  "title": "裁决表单 · 仅主代理可写",
+  "maxRequiredFields": 12,
+  "owner": "main",
+  "intro": "J 层。子进程无权调用 decide（工具会拒绝）。规则：CONFIRMED 需要至少一条由 run 记录的可执行证据；Critical/High 还要求其中一条按预期复现、且必须有一次已登记的盲化复核 verdict；severity 与调查者的 severityHint 不一致时必须写 severityBecause。",
+  "fields": [
+    {
+      "key": "decision",
+      "type": "enum",
+      "required": true,
+      "enum": ["CONFIRMED", "CONDITIONAL", "NEEDS-DECISION", "REJECTED", "VERIFIED"],
+      "prompt": "CONFIRMED=证据足以认定缺陷成立；CONDITIONAL=仍 material 但决定性事实未闭合；NEEDS-DECISION=事实已足、只剩取舍；REJECTED=怀疑被反证推翻（不是「修好了」）；VERIFIED=负结果：实测该行为是好的/按设计",
+      "check": "enum"
+    },
+    {
+      "key": "severity",
+      "type": "enum",
+      "required": false,
+      "enum": ["Critical", "High", "Medium", "Low"],
+      "prompt": "最终严重度：CONFIRMED/CONDITIONAL/NEEDS-DECISION 必填；REJECTED 与 VERIFIED 禁止填（被推翻或负结果没有评级）",
+      "check": "enum"
+    },
+    {
+      "key": "severityBecause",
+      "type": "string",
+      "required": false,
+      "prompt": "当严重度与调查者的 severityHint 不一致时必填：为什么改级别（impact × likelihood × reachability × recoverability 四维怎么算的）",
+      "reviewQuestion": "如果我不改级别，会对谁做出错误的优先级判断？"
+    },
+    {
+      "key": "why",
+      "type": "string",
+      "required": true,
+      "prompt": "依据哪几条记录、为什么是这个结论（要能被报告直接引用；写清证据 id 或命令）",
+      "check": "nonempty"
+    },
+    {
+      "key": "flipQuestion",
+      "type": "string",
+      "required": false,
+      "prompt": "哪个问题的答案会翻盘（不要写「因为环境限制无法核验」这类不写）",
+      "reviewQuestion": "若这个问题的答案相反，本条结论会变成什么？"
+    },
+    {
+      "key": "actions",
+      "type": "string",
+      "required": false,
+      "escapeHatch": true,
+      "prompt": "需要的动作（最小修法/验收条件）；报告会按严重度聚合成「需要的动作」一节"
+    }
+  ]
+}

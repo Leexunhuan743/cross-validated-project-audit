@@ -1,0 +1,104 @@
+{
+  "template": "bug",
+  "title": "发现槽位表单 · 子进程填写",
+  "maxRequiredFields": 12,
+  "owner": "investigator",
+  "intro": "一个槽位 = 一条你要报告的东西（缺陷或负结果）。只描述世界（我看到了什么、我跑了什么），不要描述账本（id、归属、严重度、裁决）；账本由工具算，证据用 run/mutate 记录。",
+  "fields": [
+    {
+      "key": "kind",
+      "type": "enum",
+      "required": true,
+      "enum": ["defect", "verification"],
+      "prompt": "defect=你怀疑存在的缺陷；verification=你实测某行为是好的/按设计（负结果同样有价值，不要因为「没找到问题」就留空槽）",
+      "check": "enum"
+    },
+    {
+      "key": "title",
+      "type": "string",
+      "required": true,
+      "maxLength": 120,
+      "prompt": "一句话说清（defect 写「X 在 Y 条件下会变成 Z」；verification 写「X 在 Y 条件下确实是 Z」）",
+      "check": "nonempty"
+    },
+    {
+      "key": "where",
+      "type": "string",
+      "required": true,
+      "prompt": "位置，格式 path:line 或 path:a-b（相对仓库根）；verification 槽位填你实际核实的位置",
+      "check": "pathline"
+    },
+    {
+      "key": "trigger",
+      "type": "string",
+      "required": true,
+      "prompt": "什么输入、状态或时序会触发它（verification 槽位填你构造的输入）",
+      "check": "nonempty"
+    },
+    {
+      "key": "impact",
+      "type": "string",
+      "required": true,
+      "prompt": "触发后世界会变成什么样（谁受损、数据/状态如何变化、能不能恢复；verification 槽位写「若实现是坏的会怎样」）",
+      "check": "nonempty"
+    },
+    {
+      "key": "expected",
+      "type": "string",
+      "required": true,
+      "prompt": "安全实现应该观察到什么（可判定的预期）",
+      "check": "nonempty"
+    },
+    {
+      "key": "actual",
+      "type": "string",
+      "required": true,
+      "prompt": "你实际观察到了什么（带数字/退出码/输出片段，不要只写「不符合预期」或「符合预期」）",
+      "check": "nonempty"
+    },
+    {
+      "key": "how",
+      "type": "command",
+      "required": false,
+      "prompt": "可重跑命令。用 run 执行后由工具写回本字段——手写不算证据；只有静态阅读的槽位允许留空（需 confidence=Low + fill --allow-static）",
+      "check": "command"
+    },
+    {
+      "key": "counter",
+      "type": "string",
+      "required": true,
+      "prompt": "最强现实反假设：如果结论相反，最合理的解释是什么",
+      "check": "nonempty"
+    },
+    {
+      "key": "checked",
+      "type": "string",
+      "required": true,
+      "prompt": "你为反驳上述反假设实际搜证的范围与路径（不是打算查什么，是实际查了什么）",
+      "check": "nonempty"
+    },
+    {
+      "key": "confidence",
+      "type": "enum",
+      "required": true,
+      "enum": ["High", "Medium", "Low"],
+      "prompt": "你对本条结论的信心档。High 要求已有按预期复现的运行记录",
+      "check": "enum"
+    },
+    {
+      "key": "severityHint",
+      "type": "enum",
+      "required": false,
+      "enum": ["Critical", "High", "Medium", "Low"],
+      "prompt": "你认为的严重度（仅 defect 槽位；只是提示，最终由主代理裁决，偏离时它必须写明理由）",
+      "reviewQuestion": "若为真：谁会受伤、伤得多重、能不能自己恢复？"
+    },
+    {
+      "key": "notes",
+      "type": "string",
+      "required": false,
+      "escapeHatch": true,
+      "prompt": "装不进上面字段的观察（自由文本，不参与校验，原样进报告）"
+    }
+  ]
+}
