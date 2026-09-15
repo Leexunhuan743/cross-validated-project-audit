@@ -881,10 +881,21 @@ def cmd_note(args):
     """记录过程披露 / 残留不确定性——报告末尾两节由它渲染，避免这两块只存在于对话里。"""
     audit = load_audit(args.dir)
     entries = audit.setdefault("notes", {"disclosure": [], "residual": []})
-    entries.setdefault(args.kind, []).append({"text": args.text, "at": now()})
-    # 这里曾经直接 write_text：写一半被杀会把 audit.json 截成 0 字节，整个实例不可读（实测）。
+    lst = entries.setdefault(args.kind, [])
+    if args.index is not None:
+        # 只能追加的笔记有个后果：收口前写下的判断被后续证据推翻后，报告里那句错话永远在。
+        # 允许按下标改写，原文留在 replaces 里，别让报告自相矛盾。
+        if not 1 <= args.index <= len(lst):
+            die("%s 第 %d 条不存在（当前 %d 条）" % (args.kind, args.index, len(lst)))
+        old = lst[args.index - 1]
+        lst[args.index - 1] = {"text": args.text, "at": now(),
+                               "replaces": str(old.get("text", ""))[:200]}
+        note("已改写 %s 第 %d 条（原文保留在 replaces 字段）：%s"
+             % (args.kind, args.index, args.text[:70]))
+    else:
+        lst.append({"text": args.text, "at": now()})
+        note("已记录 %s（累计 %d 条）：%s" % (args.kind, len(lst), args.text[:70]))
     save_json(audit_paths(args.dir)["audit"], audit)
-    note("已记录 %s（累计 %d 条）：%s" % (args.kind, len(entries[args.kind]), args.text[:70]))
 
 
 def decision_label(key):
@@ -1846,6 +1857,22 @@ def cmd_self_test(args):
     step("全部裁决后 check 通过（0 问题）", rc == 0 and "0 个问题" in out,
          out.strip().splitlines()[0][:70])
 
+    rc, out = run_tool("note", "--kind", "disclosure", "--text", "SELFTEST-DISCLOSURE-ONE")
+    rc2, out2 = run_tool("note", "--kind", "disclosure", "--text", "SELFTEST-DISCLOSURE-TWO")
+    stored = load_json(audit_paths(audit_dir)["audit"]).get("notes", {}).get("disclosure", [])
+    step("note 真的落盘（不是只回显）",
+         rc == 0 and rc2 == 0 and [n["text"] for n in stored] ==
+         ["SELFTEST-DISCLOSURE-ONE", "SELFTEST-DISCLOSURE-TWO"],
+         "读到 %r" % [n.get("text") for n in stored])
+    rc, out = run_tool("note", "--kind", "disclosure", "--index", "1",
+                       "--text", "SELFTEST-DISCLOSURE-ONE-FIXED")
+    stored = load_json(audit_paths(audit_dir)["audit"]).get("notes", {}).get("disclosure", [])
+    step("note --index 改写指定条目，原文留在 replaces 里",
+         rc == 0 and stored[0]["text"] == "SELFTEST-DISCLOSURE-ONE-FIXED"
+         and stored[0].get("replaces") == "SELFTEST-DISCLOSURE-ONE" and len(stored) == 2)
+    rc, out = run_tool("note", "--kind", "disclosure", "--index", "9", "--text", "x")
+    step("note --index 越界被拒", rc == 2 and "不存在" in out)
+
     rc, out = run_tool("report")
     report_path = audit_dir / "report.md"
     report = report_path.read_text(encoding="utf-8") if report_path.exists() else ""
@@ -2055,6 +2082,8 @@ def build_parser():
     p = sub.add_parser("note", help="记录过程披露 / 残留不确定性（报告末尾两节）")
     p.add_argument("--kind", choices=["disclosure", "residual"], required=True)
     p.add_argument("--text", required=True)
+    p.add_argument("--index", type=int,
+                   help="改写该节的第 N 条（1 起）而不是追加；原文保留在该条的 replaces 里")
     p.set_defaults(func=cmd_note)
 
     p = sub.add_parser("migrate", help="把旧模板版本的表单升级成当前模板")
