@@ -292,7 +292,19 @@ def anchor_slot(audit, slot, problems):
 def cmd_init(args):
     p = audit_paths(args.dir)
     if p["audit"].exists() and not args.force:
-        die("%s 已存在；要重建加 --force" % p["audit"])
+        # 协议要求「首轮收口后再派漫游单元」——那时实例早就存在了。
+        # 没有追加单元的路径，"派个漫游单元"就只能是句空话（照抄命令直接报错）。
+        if args.add_unit:
+            audit = load_json(p["audit"])
+            units = audit.setdefault("units", [])
+            added = [u for u in args.add_unit if u not in units]
+            units.extend(added)
+            save_json(p["audit"], audit)
+            note("已追加 unit：%s（当前：%s）" % ("、".join(added) or "无新增（已存在）", "、".join(units)))
+            note("下一步：brief --unit %s --task \"<它要回答什么>\"，然后派发。"
+                 % (added[0] if added else units[-1]))
+            return
+        die("%s 已存在；要重建加 --force，要追加调查单元用 --add-unit <ID>" % p["audit"])
     token = secrets.token_hex(16)
     audit = {
         "formsVersion": 1,
@@ -392,22 +404,25 @@ def cmd_brief(args):
     lines.append("## 操作顺序")
     lines.append("")
     lines.append("1. 你发现 N 条缺陷，就一次性建 N 个空槽（单文件、N 槽）：")
-    lines.append("   `python -B %s new --dir %s --unit %s --count N`" % (Path(__file__).name, args.dir, args.unit))
+    lines.append("   `python -B %s --dir %s new --unit %s --count N`" % (Path(__file__).name, args.dir, args.unit))
     lines.append("2. 打开那份 JSON，把每个槽位里的 `TODO:` 逐格替换成你的观察（只改值，不要加键、不要动结构）。")
     lines.append("3. 每个槽位至少跑一条命令，让工具替你记录证据（退出码 + 输出尾部）：")
-    lines.append("   `python -B %s run --dir %s --unit %s --slot <n> --cmd \"<命令>\"`" % (Path(__file__).name, args.dir, args.unit))
+    lines.append("   `python -B %s --dir %s run --unit %s --slot <n> --cmd \"<命令>\"`" % (Path(__file__).name, args.dir, args.unit))
     lines.append("   预期非 0 退出（例如复现失败）时加 `--expect-exit <n>`，工具会判定是否按预期复现。")
+    lines.append("   **调试不算证据**：探针可以先用 node/python 直接调通，但报告里引用的那一条结论，"
+                 "必须用 `run` 再跑一次留痕——否则 fill 会报「缺少运行记录」，而你写好的探针全都要重跑。")
+    lines.append("   命令含复杂引号时用 `-- <argv...>` 形式（不经 shell）。")
     lines.append("4. 不是某一条发现的运行（对照实验、装置自检、跨文件辅助实验）省略 `--slot`，"
                  "它会记成单元级证据——不要为它单开一个空槽：")
-    lines.append("   `python -B %s run --dir %s --unit %s --cmd \"<命令>\" --purpose \"<这条在验证什么>\"`"
+    lines.append("   `python -B %s --dir %s run --unit %s --cmd \"<命令>\" --purpose \"<这条在验证什么>\"`"
                  % (Path(__file__).name, args.dir, args.unit))
     lines.append("5. 想证明「这套检查真的抓得住这类坏」（判别力），用 mutate 改坏一处再跑检查：")
-    lines.append("   `python -B %s mutate --dir %s --unit %s --slot <n> --file <相对路径> --from \"<锚点>\" --to \"<改坏>\" --cmd \"<检查命令>\"`"
+    lines.append("   `python -B %s --dir %s mutate --unit %s --slot <n> --file <相对路径> --from \"<锚点>\" --to \"<改坏>\" --cmd \"<检查命令>\"`"
                  % (Path(__file__).name, args.dir, args.unit))
     lines.append("   锚点必须恰好出现 1 次；工具改完会跑检查、再逐字节还原并校验哈希。"
                  "证明变异装置本身有效（这次变异**应该**被抓到）时加 `--control`。")
     lines.append("6. 自检，迭代到 0 problem：")
-    lines.append("   `python -B %s fill --dir %s --unit %s --verify-paths`" % (Path(__file__).name, args.dir, args.unit))
+    lines.append("   `python -B %s --dir %s fill --unit %s --verify-paths`" % (Path(__file__).name, args.dir, args.unit))
     lines.append("   `--verify-paths` 会把 where 指向的那几行抓成锚点存下来（防行号漂移）。")
     lines.append("   确实只有静态阅读的槽位，必须 confidence=Low，并显式加 `--allow-static`。")
     lines.append("")
@@ -462,12 +477,31 @@ def cmd_new(args):
         note("提示：对照实验、装置自检、跨文件的辅助证据**不要**另建槽位——用 `run` / `mutate` 不填 --slot 记到单元级证据里。")
 
 
+def claim_snapshot(slot):
+    """记录证据那一刻，这个槽位在主张什么。
+
+    槽位号会在收敛（删空槽）或改写主张后漂移，而证据是按槽位号挂的——
+    一次真实审计里调查者把 14 槽砍到 10 槽，随后批量补记证据整体错位一位，
+    每条结论的证据都成了别人的，而 fill 全绿。记下当时的主张，check 就能对出来。
+    槽位还没填（title 还是 TODO）时不记，免得填完之后误报。
+    """
+    if slot is None:
+        return None
+    title = str(slot.get("title") or "")
+    return None if (not title or title.startswith(TODO)) else title
+
+
 def cmd_run(args):
     audit = load_audit(args.dir)
     path = form_file(args.dir, args.unit)
     doc = ensure_arrays(load_json(path))
     slot = find_slot(doc, args.slot) if args.slot is not None else None
 
+    if args.argv and args.cmd:
+        # 两条形式混用不会报用法错，而会把尾巴当 argv 去**真的执行**（盲测里跑出过
+        # OSError: [WinError 193] 加一段 traceback，且什么都没记下来）。宁可拒绝。
+        die("--cmd 与尾随位置参数不能同时给：--cmd 是经 shell 执行的整条命令，"
+            "`-- <argv...>` 是不经 shell 的 argv。二选一（含复杂引号用后者）。")
     if args.argv:
         cmd_text = " ".join(args.argv)
         use_shell = False
@@ -509,6 +543,7 @@ def cmd_run(args):
         "stdoutTail": tail(out),
         "stderrTail": tail(err),
         "purpose": args.purpose or "",
+        "slotTitle": claim_snapshot(slot),
         "at": now(),
     }
     if slot is None:
@@ -768,6 +803,21 @@ def cmd_check(args):
     note("check：检查了 %d 项；%d 个问题" % (checked, len(problems)))
     for problem in problems:
         note("  - " + problem)
+
+    # 提示（不影响判定）：同一命令被挂在多个槽位，是"槽位 ↔ 证据错配"的典型征兆——
+    # 一次真实审计里，调查者把 7 个探针整体挂错了一位，fill 全绿而每条结论的证据都是别人的。
+    # 工具判不了"这条证据是否支撑那条主张"，但能把这个征兆摆出来给人看。
+    for unit, doc in sorted(form_docs.items()):
+        owners = {}
+        for slot_no, recs in (doc.get("evidence") or {}).items():
+            for rec in recs:
+                owners.setdefault(rec.get("cmd"), []).append(slot_no)
+        for cmd_text, slots in owners.items():
+            distinct = sorted(set(slots))
+            if len(distinct) > 1:            # 同一槽里跑两次同一条命令不算错配
+                note("  提示：同一命令挂在 %d 个槽位（%s %s）——确认每条主张真的由它支撑；"
+                     "只作对照的一次性运行应记到单元级证据。"
+                     % (len(distinct), unit, "/".join(distinct)))
     sys.exit(1 if problems else 0)
 
 
@@ -818,6 +868,25 @@ def cmd_report(args):
     audit = load_audit(args.dir)
     decisions = load_json(audit_paths(args.dir)["decisions"]).get("decisions", [])
     indexed = {(d["unit"], d["slot"]): d for d in decisions}
+
+    # 没收口就出报告 = 把半成品当交付物。盲测里出现过一个 5 槽全 TODO、check 报 5 个问题的实例
+    # 照样渲染出报告，读的人看不出它根本没审完。要出半成品就显式 --force，报告里会带着未填/未裁决标记。
+    forms_dir = audit_paths(args.dir)["forms"]
+    todo_slots, undecided = [], []
+    for path in sorted(forms_dir.glob("*.json")):
+        doc = ensure_arrays(load_json(path))
+        unit = doc.get("unit") or path.stem
+        for slot in doc.get("slots", []):
+            label = "%s slot %s" % (unit, slot["slot"])
+            if any(TODO in str(v) for v in slot.values() if isinstance(v, str)):
+                todo_slots.append(label)
+            elif (unit, slot["slot"]) not in indexed:
+                undecided.append(label)
+    if (todo_slots or undecided) and not args.force:
+        die("未收口：%d 个槽位没填完（%s）、%d 个槽位没裁决（%s）。先 fill/decide 再来；"
+            "确要出半成品报告就加 --force。"
+            % (len(todo_slots), "、".join(todo_slots[:3]) or "无",
+               len(undecided), "、".join(undecided[:3]) or "无"))
 
     rows = []
     forms = {}
@@ -986,18 +1055,25 @@ def form_anchors(forms, unit, slot):
     return forms.get(unit, {}).get("anchors", {}).get(str(slot), [])
 
 
+def exit_text(run):
+    """exit=None 不是退出码，是"这条命令根本没跑成"（命令没找到 / 超时）。
+    报告里必须区分开——否则读的人会把"没跑成"当成"跑出了别的退出码"。"""
+    return "未执行成功（命令没找到或超时，见 stderr）" if run.get("exit") is None else str(run["exit"])
+
+
 def render_record(run, is_mut):
     """一条执行记录 → markdown 行。变异与证据分属两个数组，这里按 is_mut 分流。"""
     if is_mut:
-        return ["- 变异判别力（%s%s）：改坏 `%s`（`%s` → `%s`）后 `%s` → exit=%s，%s"
+        # 锚点给完整字面量：截断后 from/to 会长得一模一样，读报告的人无法照着复核。
+        return ["- 变异判别力（%s%s）：`%s` 里 `%s` → `%s`，之后 `%s` → exit=%s，%s"
                 % ("YES" if run.get("testCaughtMutation") else "NO",
                    "，阳性对照" if run.get("control") else "",
-                   run.get("file"), (run.get("from") or "")[:40], (run.get("to") or "")[:40],
-                   run["cmd"], run["exit"],
+                   run.get("file"), run.get("from"), run.get("to"),
+                   run["cmd"], exit_text(run),
                    "该检查拦住了这条回归" if run.get("testCaughtMutation")
                    else "**该检查没有拦住这条回归**")]
     block = ["- 证据（运行）：`%s` → exit=%s（期望 %s，%s）"
-             % (run["cmd"], run["exit"], run.get("expectedExit"),
+             % (run["cmd"], exit_text(run), run.get("expectedExit"),
                 "按预期" if run.get("matched") else "与期望不符")]
     if run.get("stdoutTail"):
         block += ["  ```", "  " + run["stdoutTail"].replace("\n", "\n  ")[:600], "  ```"]
@@ -1303,12 +1379,17 @@ def cmd_challenge(args):
     lines.append("## 最小复现配方")
     lines.append("")
     lines.append("工作根：%s" % audit["repoRoot"])
+    lines.append("下面按时间列出本槽位的**全部** %d 条记录（变异与运行分开标注）。"
+                 "复现时先看标注，再看命令原文——注意：变异锚点是**完整字面量**，不要凭前几个字符猜。" % len(records))
     for run, is_mut in records:
         if is_mut:
-            lines.append("- 变异%s：把 `%s` 里的 `%s` 改坏成 `%s` 后跑 `%s` → exit=%s（判别力 %s）"
-                         % ("（阳性对照）" if run.get("control") else "",
-                            run.get("file"), (run.get("from") or "")[:60], (run.get("to") or "")[:60],
-                            run["cmd"], run["exit"],
+            # 锚点必须原样给出：截断会让 from/to 变成两个一模一样的字符串，复核者无法照做。
+            lines.append("- 变异%s：改坏 `%s`："
+                         % ("（阳性对照）" if run.get("control") else "", run.get("file")))
+            lines.append("  - 原字面量：`%s`" % run.get("from"))
+            lines.append("  - 改成：`%s`" % run.get("to"))
+            lines.append("  - 之后跑 `%s` → exit=%s（判别力 %s）"
+                         % (run["cmd"], exit_text(run),
                             "YES：该检查拦得住" if run.get("testCaughtMutation") else "NO：改坏了检查仍通过"))
             if run.get("stdoutTail"):
                 lines.append("  - 输出尾部：")
@@ -1318,7 +1399,7 @@ def cmd_challenge(args):
             continue
         lines.append("- 命令：`%s`" % run["cmd"])
         lines.append("  - 记录到的退出码：%s（期望 %s，%s）"
-                     % (run["exit"], run.get("expectedExit"), "按预期" if run.get("matched") else "与期望不符"))
+                     % (exit_text(run), run.get("expectedExit"), "按预期" if run.get("matched") else "与期望不符"))
         if run.get("stdoutTail"):
             lines.append("  - 输出尾部：")
             lines.append("    ```")
@@ -1435,6 +1516,12 @@ def cmd_self_test(args):
 
     def run_tool(*argv):
         proc = subprocess.run([py, "-B", str(Path(__file__).resolve()), "--dir", str(audit_dir)] + list(argv),
+                              capture_output=True, text=True, encoding="utf-8", errors="replace")
+        return proc.returncode, (proc.stdout or "") + (proc.stderr or "")
+
+    def run_tool_dir_last(*argv):
+        """同一批命令，但把 --dir 放到子命令之后——文档、任务书、手写命令里都出现过这种写法。"""
+        proc = subprocess.run([py, "-B", str(Path(__file__).resolve())] + list(argv) + ["--dir", str(audit_dir)],
                               capture_output=True, text=True, encoding="utf-8", errors="replace")
         return proc.returncode, (proc.stdout or "") + (proc.stderr or "")
 
@@ -1641,6 +1728,11 @@ def cmd_self_test(args):
     step("任务描述写进契约，重渲染不丢",
          rc == 0 and rc2 == 0 and "限速维度是否可被单 IP 打满" in brief
          and (load_json(audit_paths(audit_dir)["audit"]).get("unitTasks") or {}).get("R1", "").startswith("只回答一件事"))
+    step("任务书里的命令把 --dir 写在子命令之前（canonical 形态）",
+         not re.search(r"audit_forms\.py [a-z-]+ --dir", brief),
+         "反例：--dir 写在子命令之后会 exit=2（unrecognized arguments）")
+    rc, out = run_tool_dir_last("templates-check")
+    step("--dir 写在子命令之后也能被解析（位置敏感只是陷阱）", rc == 0, first_lines(out))
 
     doc = load_json(form_file(audit_dir, "R1"))
     doc["template"] = "bug/v1"          # 伪造一份 v1 表单来验证迁移路径
@@ -1719,6 +1811,8 @@ def build_parser():
     p.add_argument("--scope")
     p.add_argument("--snapshot")
     p.add_argument("--unit", action="append")
+    p.add_argument("--add-unit", action="append",
+                   help="往已有实例追加调查单元（漫游单元等），不重建实例")
     p.add_argument("--force", action="store_true")
     p.set_defaults(func=cmd_init)
 
@@ -1811,12 +1905,14 @@ def build_parser():
     p.add_argument("--dry-run", action="store_true")
     p.set_defaults(func=cmd_migrate)
 
-    p = sub.add_parser("check", help="审计级不变量（8 条）+ 打印检查项数")
+    p = sub.add_parser("check", help="审计级不变量 + 打印检查项数")
     p.set_defaults(func=cmd_check)
 
     p = sub.add_parser("report", help="从已填事实渲染 markdown 报告")
     p.add_argument("--out")
     p.add_argument("--stdout", action="store_true")
+    p.add_argument("--force", action="store_true",
+                   help="明知未收口也出报告（报告里会如实标出未填/未裁决的槽位）")
     p.set_defaults(func=cmd_report)
 
     p = sub.add_parser("templates-check", help="模板预算与字段规则自检")
@@ -1824,6 +1920,12 @@ def build_parser():
 
     p = sub.add_parser("self-test", help="端到端自证（临时目录，跑完清理）")
     p.set_defaults(func=cmd_self_test)
+
+    # `--dir` 在子命令前后都应该能用。位置敏感是纯陷阱：文档、任务书、手写命令
+    # 三种写法都真实存在，写错位置只会得到一句 unrecognized arguments。
+    # default=SUPPRESS 保证没写时不覆盖主解析器已经解析出的值。
+    for child in sub.choices.values():
+        child.add_argument("--dir", default=argparse.SUPPRESS, help=argparse.SUPPRESS)
     return parser
 
 

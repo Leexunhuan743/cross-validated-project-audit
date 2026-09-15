@@ -34,6 +34,7 @@ python -B $S init --repo-root . --profile change --target "<对象>" --scope "<�
     --snapshot "git:<base>..<head>" --unit R1 --unit R2      # 打印 main token（只显示一次）
 python -B $S brief --unit R1 --out briefs/R1.md --task "<这个单元要回答什么>"
 python -B $S dispatch --unit R1 --job <执行者 id>
+python -B $S init --add-unit R6                               # 首轮收口后追加漫游单元（不重建实例）
 
 # 子进程（任务书里就是这几条）
 python -B $S new  --unit R1 --count 3
@@ -123,9 +124,13 @@ python -B $S check && python -B $S report --out report.md
 
 ## 安全边界与不变量
 
-`check` 跑 8 条机械可判定的不变量（并打印检查项数）：声明过的 unit 有表单文件 / 模板版本已知 / 没有 TODO 残留 / 每个槽位已裁决 / 裁决指向存在的槽位 / `CONFIRMED` 有运行记录 / `Critical/High` 有按预期复现的记录 / `Critical/High` 有已登记的盲化复核 verdict。
+`check` 跑一组机械可判定的不变量（并打印检查项数）：声明过的 unit 有表单文件 / 模板版本已知 / 没有 TODO 残留 / 单元级证据必须带命令记录 / 阳性对照失败即错误 / 每个槽位已裁决且有运行记录 / 裁决不重复且指向存在的槽位 / 证据记录时的槽位主张必须与现在一致 / `kind=verification` 必须是 `VERIFIED`、`kind=defect` 不许是 `VERIFIED` / 严重度偏离提示值必须写理由 / `Critical/High` 有按预期复现的记录与已登记的盲化复核 verdict。
 
-不可判定的部分交给 `decide --why` 与报告里的「可翻盘的问题」，而不是编造更多不变量。模板预算同样由工具强制（`templates-check`）：必填字段 ≤12、每个字段必须对应一条机械检查或一条评审问题、整模板最多一个逃生口字段。
+`report` 在还有未填或未裁决的槽位时会**拒绝出报告**（`--force` 可强制，报告里会带着这些标记）——半成品报告比没有报告更危险，因为读的人看不出它没审完。
+
+**清单不在这里维护**——规则改名或新增时，以 `check` 的实际输出与 `self-test` 为准（这份列表曾经写着「8 条」，而代码里已经是 16 个报错点，正是散文会漂移的证据）。
+
+不可判定的部分交给 `decide --why` 与报告里的「可翻盘的问题」，而不是编造更多不变量。模板预算同样由工具强制（`templates-check`）：必填字段 ≤12、每个字段必须对应一条机械检查或一条评审问题（逃生口字段除外）、整模板最多一个逃生口字段。
 
 **它不保证找到所有 bug**，也不会因为多个代理同意就认定事实，更不能用 `check` 通过代替真实的源码、运行时与权威契约验证。它保证的是：报告里每一条结论，都能顺着证据记录回到一条真的被执行过的命令。
 

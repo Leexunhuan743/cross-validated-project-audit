@@ -42,7 +42,7 @@ python -B $S dispatch --unit R1 --job <执行者 id> --note "<隔离方式>"
 
 # 子进程（任务书里就是这几条）：
 python -B $S new  --unit R1 --count 3                          # 发现 3 条东西 → 单文件 3 个空槽
-python -B $S run  --unit R1 --slot 1 --cmd "<命令>" [--expect-exit N] [--argv ...]
+python -B $S run  --unit R1 --slot 1 --cmd "<命令>" [--expect-exit N]
 python -B $S run  --unit R1 --cmd "<对照/自检命令>" --purpose "<这是干什么的>"   # 省略 --slot → 单元级证据
 python -B $S mutate --unit R1 --slot 1 --file src/x.ts --from "<锚点>" --to "<改坏>" --cmd "<检查命令>"
 python -B $S mutate --unit R1 --file src/x.ts --from "<锚点>" --to "<改坏>" --cmd "<检查命令>" --control
@@ -57,8 +57,10 @@ python -B $S prune --unit R1 --slot 4 --move-to 2              # 空槽/多余�
 python -B $S note --kind disclosure --text "..."               # 报告末尾两节
 python -B $S note --kind residual   --text "..."
 python -B $S check                                             # 审计级不变量 + 检查项数
-python -B $S report --out report.md
+python -B $S report --out report.md                             # 未收口会被拒；确要出半成品加 --force
 ```
+
+`--dir` 默认 `.audit-forms`（相对**当前目录**，所以要在仓库根执行）、`--slot` 省略即单元级证据、`--expect-exit N` 是"这条命令**预期**的退出码"（复现失败就用 `--expect-exit 1`，让记录本身可判读为"按预期"）。
 
 维护命令：`templates-check`（模板预算与字段规则自检，改模板后必跑）、`self-test`（端到端自证，改工具后必跑）、`migrate [--dry-run]`（模板升版本后升级既有表单）。
 
@@ -66,13 +68,13 @@ python -B $S report --out report.md
 
 七步，顺序不可倒。**契约先于方法，方法先于执行者。**
 
-1. **固定契约**：`init` 一次写死 target / scope / snapshot / objectives / units。结论只对 `snapshot` 那个不可变身份负责；target/scope/snapshot 变了**不重开旧实例**，新建实例并让旧实例的结论留在旧实例里。
+1. **固定契约**：`init` 一次写死 target / scope / snapshot / objectives / units。结论只对 `snapshot` 那个不可变身份负责；target/scope/snapshot 变了**不重开旧实例**，新建实例并让旧实例的结论留在旧实例里。**首轮收口后要追加单元**（漫游单元、补充面）用 `init --add-unit R6`，不要 `--force` 重建——重建会丢掉已有表单与裁决。
 2. **建风险地图**：按单元列风险面（输入边界、鉴权/信任边界、状态与并发、错误路径、外部契约、回归面），每个风险面对应一种**能判别真伪**的方法，再选执行者。异质 ≠ 独立：两个不同 method 且各自 `ISOLATED` 的执行者才算独立；同一人跑两种方法、或两人照抄同一路径都不算。
 3. **派发**：`brief` 渲染任务书交出去。`--task` 写清这个单元要回答什么（写一次就存进契约，重渲染不丢；留空任务块会被工具点出来）。任务书含字段表、权限边界、`new/run/mutate/fill` 用法，不含 main token，也不含其他单元的信息。
 4. **子进程只填空**：`new` 开槽 → `run`/`mutate` 留证据 → `fill --verify-paths` 迭代到 0 问题。负结果（"这里其实安全"）同样是一个槽位，同样要跑过一次真实检查——负结果不是沉默，是执行过的检查。
-5. **盲化复核**：对每个 Critical/High 和每条你打算推翻的怀疑，`challenge` 生成任务书派给没见过原始推理的执行者，回来登记 verdict。
+5. **盲化复核**：对每个 Critical/High 和每条你打算推翻的怀疑，`challenge` 生成任务书派给没见过原始推理的执行者，回来登记 verdict。**复核必须在裁决之前做**：severity 是第 6 步才定的，而 `check` 要求 `Critical/High` 的 `CONFIRMED` 带一条已登记的 verdict——先裁决再回头补复核，顺序就反了。
 6. **裁决**：`decide` 逐槽位定 Decision / Severity / Confidence，写清 `--why` 与可翻盘的问题（`--flip-question`：什么观察会让你改变主意）。要修的先记进 `--actions`。
-7. **收口**：`check` 到 0 问题，`note` 补上过程披露与残留不确定性，`report` 出报告。**合法结束可以是受限结论**——覆盖不足时正确结果是 `INCOMPLETE`，不是把话说满。
+7. **收口**：`check` 到 0 问题（它查机械可判定的部分：表单齐全、模板版本、TODO 残留、单元级证据带命令、阳性对照、每个槽位已裁决且有运行记录、裁决不重复且指向存在的槽位、`kind` 与 `VERIFIED` 配对、严重度偏离有理由、`Critical/High` 的复现与盲化 verdict——**规则清单以 `check` 的实际输出为准，不在散文里维护编号**），`note` 补上过程披露与残留不确定性，`report` 出报告（有未填或未裁决的槽位时它会拒绝，除非你显式 `--force` 并接受报告里带着这些标记）。**合法结束可以是受限结论**——覆盖不足时正确结果是 `INCOMPLETE`，不是把话说满。
 
 ## 漫游单元（可选，默认不启用）
 
@@ -102,7 +104,7 @@ python -B $S report --out report.md
 派它就是派一个普通单元，只是任务明确写成"没有题目"：
 
 ```bash
-python -B $S init ... --unit R6
+python -B $S init --add-unit R6                    # 实例已存在，追加单元（不要 --force 重建）
 python -B $S brief --unit R6 --task "自主寻找 material 风险，不受我的风险地图约束：没有假设清单，没有重点位置。用「从用户/调用方入口正推」这条线切入 scope 全貌。每条怀疑照常开槽、跑证据、写最强反假设；找不到东西同样要留负结果槽。"
 ```
 
@@ -125,14 +127,15 @@ python -B $S brief --unit R6 --task "自主寻找 material 风险，不受我的
 - `kind=verification` 的槽位必须是 `VERIFIED`，不允许 `CONFIRMED`——"我核实过这里安全"和"我发现了一个缺陷"是两类结论，混在一起会让严重度统计失去意义。
 - Severity 只对已经成立的东西评级；严重度高低的判断依据写进 `--why`，偏离调查者提示值时必须另写 `--severity-because`。
 - Confidence 描述的是**你这条结论**的确定程度，不描述代码质量。没有运行记录的槽位只能 Low。
-- 逃生口有代价，且必须留痕：`--allow-static`（静态证据）与 `--allow-unchallenged`（跳过盲化复核）都要在 `--why` 里写明理由，报告会照原样印出来。
+- 逃生口有代价，且必须留痕：`--allow-static`（静态证据）与 `--allow-unchallenged`（跳过盲化复核）都要在 `--why` 里写明理由，报告会照原样印出来。注意 `--allow-static` 在 **`fill` 与 `decide` 两处都要给**：`fill` 时它放行"没有运行记录"的槽位，`decide` 时它放行同一条槽位的裁决——只给一处会在另一处被拦。
+- 字段口径：`where` 必须是**仓库内**的相对路径且写成 `path:line` 或 `path:a-b`（`fill --verify-paths` 真去读那个文件并抓锚点，仓库外路径直接报错；行号按 `\n` 计，CRLF 文件的末行会计入）。`--slot` 省略即单元级证据，此时 `--purpose` 强烈建议写（报告附录靠它说明这条运行在证明什么）。
 
 ## 字段预算与模板规则
 
 模板不许退化成 200 行 schema。`templates-check` 强制三条：
 
 1. 每个模板必填字段 **≤12**；
-2. 每个字段必须声明一条机械检查（`nonempty` / `pathline` / `enum` / `command`）或一条评审问题（`reviewQuestion`）——写不出检查也提不出问题的字段，就是不该存在的字段；
+2. 每个字段必须声明一条机械检查（`nonempty` / `pathline` / `enum` / `command`）或一条评审问题（`reviewQuestion`）——写不出检查也提不出问题的字段，就是不该存在的字段；**唯一例外是逃生口字段**（它按定义装不进结构，所以只受第 3 条约束）；
 3. 整个模板最多一个逃生口字段（`escapeHatch`），用于 `notes` 这类装不进结构的东西。
 
 改模板走三步：改 JSON → `templates-check` → `migrate`（既有表单升版本）+ `self-test`（回归）。
@@ -147,6 +150,8 @@ python -B $S brief --unit R6 --task "自主寻找 material 风险，不受我的
 | 异质与独立 | 两个不同方法 + 两个不同 ISOLATED 执行者 | 一人跑两种方法，或两人照抄同一路径 |
 | 判别力 | `mutate --control` 先证明这套检查抓得住已知的坏 | 直接宣称"测试覆盖了这条路径" |
 | 容器归位 | 对照实验进单元级证据，空槽 `prune` 掉 | 拿多余槽位当证据桶，污染统计 |
+| 槽位收缩 | 先定稿主张与槽位集合，**再**补记证据 | 先砍槽位、后批量补证据——槽号一漂，每条结论的证据都成了别人的，而 `fill` 全绿 |
+| 调查者中断 | 重派一个新的调查者（或把该单元降级并披露） | 主代理顺手替它把格子填完——同一主体既调查又裁决，独立性直接失效 |
 | 漫游单元 | 首轮收口后再派，题目自由但证据标准不变 | 与首轮并行派，或借"漫游"之名放松证据与复核要求 |
 | 收口 | 覆盖不足就报 `INCOMPLETE` | 为了报告好看把未闭合前提藏进措辞 |
 
