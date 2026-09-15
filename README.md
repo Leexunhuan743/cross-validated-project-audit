@@ -32,7 +32,7 @@ S=<skill-root>/scripts/audit_forms.py
 # 主代理
 python -B $S init --repo-root . --profile change --target "<对象>" --scope "<范围>" \
     --snapshot "git:<base>..<head>" --unit R1 --unit R2      # 打印 main token（只显示一次）
-python -B $S brief --unit R1 --out briefs/R1.md              # 渲染任务书（字段表 + 权限边界）
+python -B $S brief --unit R1 --out briefs/R1.md --task "<这个单元要回答什么>"
 python -B $S dispatch --unit R1 --job <执行者 id>
 
 # 子进程（任务书里就是这几条）
@@ -134,4 +134,6 @@ python -B $S check && python -B $S report --out report.md
 - **只维护一个平面**：状态平面（`state.json` + validator + 45 个 fixture）已删除。实测中它的 Gate 推导、派发凭据、修复批次 DAG 在两次真实审计里一次都没被用到，却占了 426KB 代码和每次执行都要记住的格式知识。唯一被保留的能力是机械推导的放行裁决行——它现在是 `report` 里的一行，而不是一套状态机。
 - **格式归生成器，判断归人**：任务书、空壳、校验、报告、迁移全部从 `templates/*.json` 渲染。"每次执行都保持同一格式"由生成器保证，而不是要求每个调查者记住。
 - **证据归工具，诚实不靠纪律**：`run`/`mutate` 是仅有的两个证据入口，它们把"我认为测试拦得住"换成"记录显示 exit=1"。
+- **反向机制只留一条**：其余机制都在压缩调查者的搜索空间（题目由主代理给、证据必须按预期复现），所以保留「漫游单元」——首轮收口后派 1–2 个没有题目的单元，专门找主代理没想到的问题。它的证据标准与首轮完全一致，这是题目自由、不是标准放松。
+- **任务描述进契约**：`brief --task` 把"这个单元要回答什么"写进 `audit.json`，重渲染不丢；留空时任务书里明写「未指定」，派发时也会被点出来——单元的任务靠散文口头交代，就是格式漂移的另一种形式。
 - **默认收窄触发**：frontmatter 只覆盖高风险与明确交叉验证请求，避免普通 review 被重协议误触发；宽泛触发（"做个安全审计"）先讲清成本再启动。

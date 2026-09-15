@@ -302,6 +302,7 @@ def cmd_init(args):
         "snapshot": args.snapshot or "(未填写 snapshot)",
         "repoRoot": str(Path(args.repo_root).resolve()),
         "units": args.unit or [],
+        "unitTasks": {},
         "createdAt": now(),
         "mainTokenSha256": hashlib.sha256(token.encode("utf-8")).hexdigest(),
     }
@@ -339,6 +340,13 @@ def cmd_init(args):
 def cmd_brief(args):
     audit = load_audit(args.dir)
     tpl = load_template(BUG_TEMPLATE)
+    # 任务描述只写一次，存在契约里：重渲染任务书不该把它弄丢，
+    # 也不该逼主代理每次重新交代"这个单元到底要回答什么"。
+    tasks = audit.setdefault("unitTasks", {})
+    if args.task:
+        tasks[args.unit] = args.task
+        save_json(audit_paths(args.dir)["audit"], audit)
+    task = tasks.get(args.unit)
     lines = []
     lines.append("# 缺陷表单任务书 · unit %s" % args.unit)
     lines.append("")
@@ -347,6 +355,16 @@ def cmd_brief(args):
     lines.append("快照：%s" % audit["snapshot"])
     lines.append("工作根：%s" % audit["repoRoot"])
     lines.append("表单目录：%s" % audit_paths(args.dir)["forms"])
+    lines.append("")
+    lines.append("## 你的任务")
+    lines.append("## 你的任务")
+    lines.append("")
+    if task:
+        lines.append(task)
+    else:
+        lines.append("**（未指定）** —— 主代理派这个单元时没写清它要回答什么。"
+                     "补一句 `brief --unit %s --task \"<...>\"` 再派发；"
+                     "一个不知道自己该回答什么的单元，产出一定是散的。" % args.unit)
     lines.append("")
     lines.append("## 你的权限边界")
     lines.append("")
@@ -405,6 +423,9 @@ def cmd_brief(args):
     if args.stdout:
         sys.stdout.write(text)
     note("已生成任务书：%s" % out)
+    if not task:
+        note("  提示：unit %s 还没有任务描述，任务书里是空任务块（brief --unit %s --task \"...\"）。"
+             % (args.unit, args.unit))
 
 
 def cmd_new(args):
@@ -1094,6 +1115,9 @@ def cmd_dispatch(args):
     for entry in entries:
         seen[entry["unit"]] = seen.get(entry["unit"], 0) + 1
     note("派发统计：" + "，".join("%s×%d" % (u, n) for u, n in sorted(seen.items())))
+    if args.unit not in (audit.get("unitTasks") or {}):
+        note("  提示：unit %s 没有任务描述，任务书里的任务块是空的——派发前补 "
+             "`brief --unit %s --task \"...\"`。" % (args.unit, args.unit))
 
 
 def cmd_mutate(args):
@@ -1608,6 +1632,15 @@ def cmd_self_test(args):
     brief = (audit_dir / "briefs" / "R1.md").read_text(encoding="utf-8")
     step("任务书列出字段与权限边界",
          rc == 0 and "decide" in brief and "必填" in brief and "main token" in brief)
+    step("没写任务描述时，任务块明说「未指定」而不是静默留白",
+         "## 你的任务" in brief and "（未指定）" in brief and "没有任务描述" in out)
+
+    rc, out = run_tool("brief", "--unit", "R1", "--task", "只回答一件事：限速维度是否可被单 IP 打满")
+    rc2, _ = run_tool("brief", "--unit", "R1")           # 重渲染不带 --task
+    brief = (audit_dir / "briefs" / "R1.md").read_text(encoding="utf-8")
+    step("任务描述写进契约，重渲染不丢",
+         rc == 0 and rc2 == 0 and "限速维度是否可被单 IP 打满" in brief
+         and (load_json(audit_paths(audit_dir)["audit"]).get("unitTasks") or {}).get("R1", "").startswith("只回答一件事"))
 
     doc = load_json(form_file(audit_dir, "R1"))
     doc["template"] = "bug/v1"          # 伪造一份 v1 表单来验证迁移路径
@@ -1624,7 +1657,7 @@ def cmd_self_test(args):
     rc_dry, out_dry = run_tool("migrate", "--dry-run")
     rc_mig, out_mig = run_tool("migrate")
     doc = load_json(form_file(audit_dir, "R1"))
-    step("migrate 把 v1 表单升级到 v2（runs 拆成 evidence/mutations、按裁决推断 kind）",
+    step("migrate 把旧模板表单升级到当前模板（runs 拆成 evidence/mutations、按裁决推断 kind）",
          rc_dry == 0 and rc_mig == 0 and doc["template"] == BUG_TEMPLATE
          and doc.get("migratedFrom") == "bug/v1"
          and len(doc["evidence"]["1"]) == 1 and len(doc["mutations"]["2"]) == 2
@@ -1691,6 +1724,7 @@ def build_parser():
 
     p = sub.add_parser("brief", help="从模板渲染某一 unit 的任务书")
     p.add_argument("--unit", required=True)
+    p.add_argument("--task", help="本单元要回答什么（写一次就存进 audit.json，重渲染不丢）")
     p.add_argument("--out")
     p.add_argument("--stdout", action="store_true")
     p.set_defaults(func=cmd_brief)
